@@ -23,12 +23,14 @@ class ConversationMemory:
         tool_results: list[dict[str, Any]],
         *,
         recovery_applied: bool = False,
+        trace_id: str = "",
     ) -> None:
         self.turn_metadata.append(
             {
                 "plan": plan,
                 "tool_results": tool_results,
                 "recovery_applied": recovery_applied,
+                "trace_id": trace_id,
             }
         )
 

@@ -1,18 +1,30 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+import time
 from typing import Any
 
-from app.agent.plan_schema import args_to_tool_input, topological_sort_steps
+from app.agent.plan_schema import topological_sort_steps
 from app.agent.tool_registry import ToolRegistry
+from app.tools.base_tool import ensure_tool_result, make_tool_result, tool_result_to_legacy_output
 from app.utils.logger import get_logger
 
 
 class Executor:
     """Execute planner steps in dependency order with bounded retries."""
 
-    def __init__(self, registry: ToolRegistry, logger_name: str = "codeinsight.executor") -> None:
+    _RETRY_BACKOFF_SECONDS = (0.3, 0.8, 1.5)
+
+    def __init__(
+        self,
+        registry: ToolRegistry,
+        logger_name: str = "codeinsight.executor",
+        *,
+        step_timeout_seconds: float | None = None,
+    ) -> None:
         self.registry = registry
         self.logger = get_logger(logger_name)
+        self.step_timeout_seconds = step_timeout_seconds
 
     def execute_plan(self, plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
@@ -33,6 +45,7 @@ class Executor:
         self.logger.info("Executor received %d tool call(s).", total_steps)
 
         for idx, step in enumerate(tool_calls, start=1):
+            step_started = time.perf_counter()
             tool_name = step.get("tool")
             step_id = step.get("id", f"step_{idx}")
             args = step.get("args")
@@ -46,15 +59,17 @@ class Executor:
                 max_retries = 0
             max_retries = max(0, min(2, max_retries))
             total_attempts = 1 + max_retries
+            timeout_seconds = self._resolve_timeout(step.get("timeout_seconds"))
 
             self.logger.info(
-                "Step %d/%d id=%s -> tool=%s deps=%s max_retries=%d",
+                "Step %d/%d id=%s -> tool=%s deps=%s max_retries=%d timeout=%.2fs",
                 idx,
                 total_steps,
                 step_id,
                 tool_name,
                 deps,
                 max_retries,
+                timeout_seconds if timeout_seconds is not None else 0.0,
             )
 
             tool = self.registry.get_tool(tool_name)
@@ -67,37 +82,82 @@ class Executor:
                         "tool": tool_name,
                         "status": "error",
                         "output": f"Tool `{tool_name}` not found.",
+                        "tool_result": make_tool_result(
+                            status="error",
+                            data=None,
+                            error=f"Tool `{tool_name}` not found.",
+                            meta={"missing_tool": True},
+                        ),
                         "success_criteria": success_criteria,
                         "attempts": 0,
+                        "error_type": "permanent",
+                        "duration_ms": int((time.perf_counter() - step_started) * 1000),
+                        "timed_out": False,
                         "deps": deps,
                     }
                 )
                 continue
 
-            last_exc: str | None = None
             last_output = ""
             final_status = "error"
             attempts_used = 0
+            timed_out = False
+            error_type = ""
+            normalized = make_tool_result(status="error", data=None, error="", meta={})
 
             for attempt in range(total_attempts):
                 attempts_used = attempt + 1
-                tool_input = args_to_tool_input(str(tool_name), args)
                 self.logger.info(
-                    "Step %d/%d `%s` attempt %d/%d input_len=%d",
+                    "Step %d/%d `%s` attempt %d/%d args_keys=%s",
                     idx,
                     total_steps,
                     tool_name,
                     attempts_used,
                     total_attempts,
-                    len(tool_input),
+                    sorted(args.keys()),
                 )
                 try:
-                    last_output = tool.run(tool_input)
-                    final_status = "ok"
-                    last_exc = None
-                    break
+                    raw = self._run_with_timeout(tool, args, timeout_seconds=timeout_seconds)
+                    normalized = ensure_tool_result(raw)
+                    last_output = tool_result_to_legacy_output(normalized)
+                    final_status = str(normalized.get("status", "ok"))
+                    if final_status == "error" and not normalized.get("error"):
+                        normalized["error"] = "Tool returned error status without message."
+                    if final_status == "error":
+                        error_type = self._classify_error(str(normalized.get("error", "")), timed_out=False)
+                    else:
+                        error_type = ""
+                    if final_status == "ok":
+                        break
+                except TimeoutError as exc:
+                    timed_out = True
+                    final_status = "error"
+                    error_type = "transient"
+                    normalized = make_tool_result(
+                        status="error",
+                        data=None,
+                        error=str(exc),
+                        meta={"timed_out": True},
+                    )
+                    last_output = str(exc)
+                    self.logger.warning(
+                        "Step %d/%d `%s` attempt %d timed out: %s",
+                        idx,
+                        total_steps,
+                        tool_name,
+                        attempts_used,
+                        exc,
+                    )
                 except Exception as exc:  # noqa: BLE001
-                    last_exc = str(exc)
+                    final_status = "error"
+                    error_type = self._classify_error(str(exc), timed_out=False)
+                    normalized = make_tool_result(
+                        status="error",
+                        data=None,
+                        error=str(exc),
+                        meta={"exception_raised": True},
+                    )
+                    last_output = str(exc)
                     self.logger.warning(
                         "Step %d/%d `%s` attempt %d failed: %s",
                         idx,
@@ -106,9 +166,21 @@ class Executor:
                         attempts_used,
                         exc,
                     )
-                    if attempt == total_attempts - 1:
-                        last_output = last_exc
-                        final_status = "error"
+
+                is_last_attempt = attempt == total_attempts - 1
+                should_retry = final_status == "error" and (not is_last_attempt) and error_type == "transient"
+                if should_retry:
+                    delay = self._backoff_seconds(attempt)
+                    self.logger.info(
+                        "Step %d/%d `%s` transient failure, retry after %.1fs",
+                        idx,
+                        total_steps,
+                        tool_name,
+                        delay,
+                    )
+                    time.sleep(delay)
+                else:
+                    break
 
             results.append(
                 {
@@ -117,19 +189,70 @@ class Executor:
                     "tool": tool_name,
                     "status": final_status,
                     "output": last_output,
+                    "tool_result": normalized,
                     "success_criteria": success_criteria,
                     "attempts": attempts_used,
+                    "error_type": error_type,
+                    "duration_ms": int((time.perf_counter() - step_started) * 1000),
+                    "timed_out": timed_out,
                     "deps": deps,
                 }
             )
             self.logger.info(
-                "Step %d/%d `%s` finished status=%s attempts=%d",
+                "Step %d/%d `%s` finished status=%s attempts=%d error_type=%s timed_out=%s",
                 idx,
                 total_steps,
                 tool_name,
                 final_status,
                 attempts_used,
+                error_type,
+                timed_out,
             )
 
         self.logger.info("Executor finished. Generated %d result item(s).", len(results))
         return results
+
+    def _resolve_timeout(self, value: Any) -> float | None:
+        if isinstance(value, (int, float)) and value > 0:
+            return float(value)
+        return self.step_timeout_seconds
+
+    def _backoff_seconds(self, attempt: int) -> float:
+        if attempt < len(self._RETRY_BACKOFF_SECONDS):
+            return self._RETRY_BACKOFF_SECONDS[attempt]
+        return self._RETRY_BACKOFF_SECONDS[-1]
+
+    def _run_with_timeout(
+        self,
+        tool: Any,
+        tool_input: dict[str, Any],
+        *,
+        timeout_seconds: float | None,
+    ) -> Any:
+        if timeout_seconds is None:
+            return tool.run(tool_input)
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(tool.run, tool_input)
+            try:
+                return future.result(timeout=timeout_seconds)
+            except FutureTimeoutError as exc:
+                raise TimeoutError(f"Step timed out after {timeout_seconds:.2f}s") from exc
+
+    def _classify_error(self, message: str, *, timed_out: bool) -> str:
+        if timed_out:
+            return "transient"
+        text = message.lower()
+        transient_tokens = (
+            "timeout",
+            "timed out",
+            "temporar",
+            "rate limit",
+            "connection",
+            "network",
+            "unavailable",
+            "429",
+            "503",
+        )
+        if any(token in text for token in transient_tokens):
+            return "transient"
+        return "permanent"

@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
+from typing import Any
 
 from app.rag.retriever import CodeRetriever
-from app.tools.base_tool import BaseTool
+from app.tools.base_tool import BaseTool, make_tool_result
 from app.utils.logger import get_logger
 
 
@@ -18,7 +18,30 @@ class SearchTool(BaseTool):
         self.top_k = top_k
         self.logger = get_logger("codeinsight.tools.search")
 
-    def run(self, input: str) -> str:
-        self.logger.info("SearchTool query: %s", input)
-        results = self.retriever.retrieve(query=input, top_k=self.top_k)
-        return json.dumps(results, ensure_ascii=False)
+    def run(self, input: dict[str, Any] | str) -> dict[str, Any]:
+        query = self._extract_query(input)
+        self.logger.info("SearchTool query: %s", query)
+        if not query:
+            return make_tool_result(
+                status="error",
+                data=[],
+                error="search_tool requires non-empty query/input.",
+                meta={"top_k": self.top_k, "query_length": 0},
+            )
+        results = self.retriever.retrieve(query=query, top_k=self.top_k)
+        return make_tool_result(
+            status="ok",
+            data=results,
+            meta={"top_k": self.top_k, "query_length": len(query)},
+        )
+
+    def _extract_query(self, input_value: dict[str, Any] | str) -> str:
+        if isinstance(input_value, str):
+            return input_value.strip()
+        query = input_value.get("query")
+        if isinstance(query, str) and query.strip():
+            return query.strip()
+        fallback = input_value.get("input")
+        if isinstance(fallback, str):
+            return fallback.strip()
+        return ""

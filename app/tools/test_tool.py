@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import ast
 import json
+from pathlib import Path
+import re
 from typing import Any
 
 from app.llm.llm import LLMClient
 from app.llm.prompt import TEST_TOOL_SYSTEM_PROMPT, build_test_tool_user_prompt
 from app.sandbox.evaluator import evaluate_execution
 from app.sandbox.runner import SandboxRunner
-from app.tools.base_tool import BaseTool
+from app.tools.base_tool import BaseTool, make_tool_result
 from app.utils.logger import get_logger
 
 _PREVIEW_MAX = 2000
@@ -36,7 +38,15 @@ def _build_error_summary(
     err = (stderr or "").strip()
     out = (stdout or "").strip()
     primary = err if err else out
-    return _truncate(primary) if primary else "测试失败且无可用输出。"
+    summary = _truncate(primary) if primary else "测试失败且无可用输出。"
+    return _sanitize_error_summary(summary)
+
+
+def _sanitize_error_summary(text: str) -> str:
+    # Hide local absolute paths to avoid leaking host directory details.
+    text = re.sub(r"[A-Za-z]:\\[^\s'\"]+", "<redacted_path>", text)
+    text = re.sub(r"/[^\s'\"]+", "<redacted_path>", text)
+    return text
 
 
 class TestTool(BaseTool):
@@ -61,8 +71,16 @@ class TestTool(BaseTool):
         self._sandbox_outputs_dir = sandbox_outputs_dir
         self._sandbox_timeout_seconds = sandbox_timeout_seconds
 
-    def run(self, input: str) -> str:
-        original_code, optimized_code = self._parse_input(input)
+    def run(self, input: dict[str, Any] | str) -> dict[str, Any]:
+        input_text = self._extract_input(input)
+        original_code, optimized_code = self._parse_input(input_text)
+        if not input_text:
+            return make_tool_result(
+                status="error",
+                data={},
+                error="test_tool requires non-empty input.",
+                meta={"input_length": 0},
+            )
         prompt = build_test_tool_user_prompt(
             original_code=original_code, optimized_code=optimized_code
         )
@@ -71,7 +89,19 @@ class TestTool(BaseTool):
 
         result = self._parse_result(raw=raw, optimized_code=optimized_code)
         self._attach_sandbox_result(result)
-        return json.dumps(result, ensure_ascii=False)
+        return make_tool_result(
+            status="ok",
+            data=result,
+            meta={"input_length": len(input_text)},
+        )
+
+    def _extract_input(self, input_value: dict[str, Any] | str) -> str:
+        if isinstance(input_value, str):
+            return input_value.strip()
+        text = input_value.get("input")
+        if isinstance(text, str):
+            return text.strip()
+        return ""
 
     def _parse_input(self, input_text: str) -> tuple[str, str]:
         """
@@ -155,7 +185,7 @@ class TestTool(BaseTool):
                 "verdict": "error",
                 "success": False,
                 "timed_out": False,
-                "error_summary": _truncate(str(exc)),
+                "error_summary": _sanitize_error_summary(_truncate(str(exc))),
             }
             return
 
@@ -179,7 +209,7 @@ class TestTool(BaseTool):
             "error_summary": error_summary,
             "stdout_preview": _truncate(stdout) if stdout.strip() else "",
             "stderr_preview": _truncate(stderr) if stderr.strip() else "",
-            "file_path": str(ev.get("file_path", "")),
+            "file_path": self._redact_path(str(ev.get("file_path", ""))),
         }
 
     def _is_python_syntax_valid(self, code: str) -> bool:
@@ -208,3 +238,10 @@ class TestTool(BaseTool):
             "test_code": test_code,
             "executable": self._is_python_syntax_valid(test_code),
         }
+
+    def _redact_path(self, raw_path: str) -> str:
+        try:
+            p = Path(raw_path)
+            return p.name if p.name else raw_path
+        except Exception:  # noqa: BLE001
+            return raw_path

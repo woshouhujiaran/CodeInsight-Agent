@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 
 from app.llm.llm import LLMClient
+from app.sandbox.runner import SandboxRunner
 from app.tools.test_tool import TestTool
 
 
@@ -35,7 +36,7 @@ def test_sandbox_verdict_passed(tmp_path: Path) -> None:
         tmp_path,
     )
     out = tool.run("ignored")
-    data = json.loads(out)
+    data = out["data"]
     assert data["sandbox"]["verdict"] == "passed"
     assert data["sandbox"]["success"] is True
     assert data["sandbox"]["timed_out"] is False
@@ -51,7 +52,7 @@ def test_sandbox_verdict_failed(tmp_path: Path) -> None:
         tmp_path,
     )
     out = tool.run("ignored")
-    data = json.loads(out)
+    data = out["data"]
     assert data["sandbox"]["verdict"] == "failed"
     assert data["sandbox"]["success"] is False
     assert data["sandbox"]["error_summary"]
@@ -68,5 +69,31 @@ def test_sandbox_skipped_when_disabled(tmp_path: Path) -> None:
         run_sandbox=False,
     )
     out = tool.run("ignored")
-    data = json.loads(out)
+    data = out["data"]
     assert data["sandbox"]["skipped"] is True
+
+
+def test_sandbox_timeout_result(tmp_path: Path) -> None:
+    runner = SandboxRunner(outputs_dir=str(tmp_path / "sandbox_out"), timeout_seconds=1)
+    res = runner.run_test_code("import time\n\ndef test_sleep():\n    time.sleep(2)\n")
+    assert res.timed_out is True
+    assert res.success is False
+
+
+def test_sandbox_malicious_prefix_stays_in_outputs(tmp_path: Path) -> None:
+    runner = SandboxRunner(outputs_dir=str(tmp_path / "sandbox_out"), timeout_seconds=5)
+    p = runner._write_test_file("def test_ok():\n    assert True\n", filename_prefix="..\\..\\evil")
+    assert str(p.resolve()).startswith(str((tmp_path / "sandbox_out").resolve()))
+
+
+def test_sandbox_output_truncation(tmp_path: Path) -> None:
+    runner = SandboxRunner(outputs_dir=str(tmp_path / "sandbox_out"), timeout_seconds=5, max_output_chars=200)
+    code = (
+        "def test_output():\n"
+        "    import sys\n"
+        "    sys.stdout.write('x' * 1000)\n"
+        "    assert True\n"
+    )
+    res = runner.run_test_code(code)
+    assert res.success is True
+    assert "[truncated output:" in res.stdout or len(res.stdout) <= 200

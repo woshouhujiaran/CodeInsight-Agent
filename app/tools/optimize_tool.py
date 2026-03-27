@@ -8,7 +8,7 @@ from app.llm.prompt import (
     OPTIMIZE_TOOL_SYSTEM_PROMPT,
     build_optimize_tool_user_prompt,
 )
-from app.tools.base_tool import BaseTool
+from app.tools.base_tool import BaseTool, make_tool_result
 from app.utils.logger import get_logger
 
 
@@ -22,13 +22,33 @@ class OptimizeTool(BaseTool):
         self.llm = llm
         self.logger = get_logger(logger_name)
 
-    def run(self, input: str) -> str:
-        prompt = build_optimize_tool_user_prompt(code_snippet=input)
+    def run(self, input: dict[str, Any] | str) -> dict[str, Any]:
+        code_snippet = self._extract_input(input)
+        if not code_snippet:
+            return make_tool_result(
+                status="error",
+                data={},
+                error="optimize_tool requires non-empty input.",
+                meta={"input_length": 0},
+            )
+        prompt = build_optimize_tool_user_prompt(code_snippet=code_snippet)
         raw = self.llm.generate_text(prompt=prompt, system_prompt=OPTIMIZE_TOOL_SYSTEM_PROMPT)
         self.logger.debug("OptimizeTool raw output: %s", raw)
 
-        result = self._parse_result(raw=raw, original_code=input)
-        return json.dumps(result, ensure_ascii=False)
+        result = self._parse_result(raw=raw, original_code=code_snippet)
+        return make_tool_result(
+            status="ok",
+            data=result,
+            meta={"input_length": len(code_snippet)},
+        )
+
+    def _extract_input(self, input_value: dict[str, Any] | str) -> str:
+        if isinstance(input_value, str):
+            return input_value.strip()
+        text = input_value.get("input")
+        if isinstance(text, str):
+            return text.strip()
+        return ""
 
     def _parse_result(self, raw: str, original_code: str) -> dict[str, Any]:
         try:

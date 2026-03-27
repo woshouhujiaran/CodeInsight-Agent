@@ -1,6 +1,11 @@
 from __future__ import annotations
 
-from app.agent.recovery import search_tool_output_is_empty, should_recovery_replan
+from app.agent.recovery import (
+    apply_recovery_strategy,
+    evaluate_recovery,
+    search_tool_output_is_empty,
+    should_recovery_replan,
+)
 
 
 def test_search_tool_output_is_empty() -> None:
@@ -44,3 +49,19 @@ def test_should_recovery_replan_ok_hits() -> None:
         )
         is False
     )
+
+
+def test_evaluate_recovery_analyze_low_information() -> None:
+    decision = evaluate_recovery(
+        [{"tool": "analyze_tool", "status": "ok", "output": "信息不足，无法分析"}]
+    )
+    assert decision["triggered"] is True
+    assert decision["reason"] == "analyze_low_information"
+    assert decision["strategy"] == "analyze_with_assumption"
+
+
+def test_apply_recovery_strategy_split_search() -> None:
+    plan = [{"tool": "search_tool", "args": {"query": "登录模块"}}]
+    out = apply_recovery_strategy(plan, strategy="split_search", user_query="登录 模块 异常")
+    assert "query" in out[0]["args"]
+    assert "登录" in str(out[0]["args"]["query"])

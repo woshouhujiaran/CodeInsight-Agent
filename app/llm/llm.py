@@ -3,10 +3,11 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import time
 from typing import Any
 from urllib import error, request
 
-from app.utils.logger import get_logger
+from app.utils.logger import get_logger, log_event
 
 
 @dataclass
@@ -33,6 +34,7 @@ class LLMClient:
         provider SDK call (OpenAI/DeepSeek) while keeping the same method
         signature to avoid changing upper-layer modules.
         """
+        started = time.perf_counter()
         messages: list[dict[str, str]] = []
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
@@ -40,6 +42,16 @@ class LLMClient:
 
         api_result = self._chat_completion(messages)
         if api_result is not None:
+            log_event(
+                self.logger,
+                module="llm",
+                action="generate_text",
+                status="ok",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                provider=self.provider,
+                model=self.model,
+                source="api",
+            )
             return api_result
 
         # ---- fallback when API key/provider unavailable ----
@@ -50,7 +62,7 @@ class LLMClient:
 
         # Recovery planner fallback (must run before generic planner — both contain 规划器)
         if "第二次规划" in sp_low or "恢复规划" in sp_low:
-            return json.dumps(
+            out = json.dumps(
                 [
                     {
                         "id": "r1",
@@ -73,10 +85,21 @@ class LLMClient:
                 ],
                 ensure_ascii=False,
             )
+            log_event(
+                self.logger,
+                module="llm",
+                action="generate_text",
+                status="ok",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                provider=self.provider,
+                model=self.model,
+                source="fallback",
+            )
+            return out
 
         # Planner fallback (structured plan: id/deps/tool/args/success_criteria)
         if "规划器" in sp_low or ("json" in sp_low and "数组" in sp_low and "tool" in sp_low):
-            return json.dumps(
+            out = json.dumps(
                 [
                     {
                         "id": "s1",
@@ -97,10 +120,21 @@ class LLMClient:
                 ],
                 ensure_ascii=False,
             )
+            log_event(
+                self.logger,
+                module="llm",
+                action="generate_text",
+                status="ok",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                provider=self.provider,
+                model=self.model,
+                source="fallback",
+            )
+            return out
 
         # Optimize tool fallback
         if "优化助手" in (system_prompt or "") or "optimized_code" in prompt_text:
-            return json.dumps(
+            out = json.dumps(
                 {
                     "optimization_suggestions": [
                         "减少重复逻辑并提取函数",
@@ -114,10 +148,21 @@ class LLMClient:
                 },
                 ensure_ascii=False,
             )
+            log_event(
+                self.logger,
+                module="llm",
+                action="generate_text",
+                status="ok",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                provider=self.provider,
+                model=self.model,
+                source="fallback",
+            )
+            return out
 
         # Test tool fallback
         if "测试工程师" in (system_prompt or "") or "test_code" in prompt_text:
-            return json.dumps(
+            out = json.dumps(
                 {
                     "coverage_focus": ["主流程", "边界输入", "异常路径"],
                     "test_code": (
@@ -134,8 +179,29 @@ class LLMClient:
                 },
                 ensure_ascii=False,
             )
+            log_event(
+                self.logger,
+                module="llm",
+                action="generate_text",
+                status="ok",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                provider=self.provider,
+                model=self.model,
+                source="fallback",
+            )
+            return out
 
         # Generic analysis fallback
+        log_event(
+            self.logger,
+            module="llm",
+            action="generate_text",
+            status="ok",
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            provider=self.provider,
+            model=self.model,
+            source="fallback",
+        )
         return "已完成分析：建议先定位核心模块，再结合测试与性能数据做优化。"
 
     def generate_answer(

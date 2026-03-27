@@ -42,3 +42,25 @@ python -m app.main
 - `--codebase-dir` 指定入库目录（默认 `data/codebase`）
 - `--top-k` 检索返回条数（默认 5）
 - `--query` 单轮提问
+
+## E2E 评测基线
+
+已提供 `>=20` 条任务评测集：`eval/tasks.json`（覆盖 analysis / optimize / test）。
+
+一键运行评测：
+
+```bash
+python scripts/run_eval.py --tasks eval/tasks.json --output outputs/eval_result.json
+```
+
+可选参数：
+- `--codebase-dir`：评测时使用的代码库目录（默认 `data/codebase`）
+- `--top-k`：检索 top-k（默认 `5`）
+- `--force-reindex`：评测前强制重建索引
+
+评测输出：
+- 终端打印汇总指标：
+  - `success_rate`
+  - `avg_duration_ms`
+  - `recovery_trigger_rate`
+- 详细结果保存为 JSON：`outputs/eval_result.json`

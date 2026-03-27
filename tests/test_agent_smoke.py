@@ -38,6 +38,9 @@ def test_code_agent_run_smoke() -> None:
 
     assert len(result.plan) >= 1
     assert len(result.tool_results) >= 1
+    assert "tool_result" in result.tool_results[0]
+    assert set(result.tool_results[0]["tool_result"].keys()) == {"status", "data", "error", "meta"}
+    assert planner.last_plan_score is not None
     assert "Round 1" in result.context
     assert "search_result" in result.context
     assert isinstance(result.answer, str) and result.answer.strip()
