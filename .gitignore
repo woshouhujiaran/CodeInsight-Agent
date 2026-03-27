@@ -194,6 +194,12 @@ cython_debug/
 # PyPI configuration file
 .pypirc
 
+# CodeInsight-Agent generated sandbox tests
+outputs/
+
+# Persisted RAG indexes (FAISS + metadata)
+data/index/
+
 # Cursor
 #  Cursor is an AI-powered code editor. `.cursorignore` specifies files/directories to
 #  exclude from AI features like autocomplete and code analysis. Recommended for sensitive data

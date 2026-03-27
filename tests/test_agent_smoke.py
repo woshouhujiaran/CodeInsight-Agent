@@ -38,7 +38,7 @@ def test_code_agent_run_smoke() -> None:
 
     assert len(result.plan) >= 1
     assert len(result.tool_results) >= 1
-    assert "Tool Results" in result.context
+    assert "Round 1" in result.context
     assert "search_result" in result.context
     assert isinstance(result.answer, str) and result.answer.strip()
 

@@ -18,9 +18,19 @@ class ConversationMemory:
         self.messages.append({"role": "assistant", "content": content})
 
     def add_turn_metadata(
-        self, plan: list[dict[str, Any]], tool_results: list[dict[str, Any]]
+        self,
+        plan: list[dict[str, Any]],
+        tool_results: list[dict[str, Any]],
+        *,
+        recovery_applied: bool = False,
     ) -> None:
-        self.turn_metadata.append({"plan": plan, "tool_results": tool_results})
+        self.turn_metadata.append(
+            {
+                "plan": plan,
+                "tool_results": tool_results,
+                "recovery_applied": recovery_applied,
+            }
+        )
 
     def get_messages(self) -> list[dict[str, str]]:
         return self.messages.copy()

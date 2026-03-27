@@ -1,3 +1,5 @@
 faiss-cpu
 numpy
 pytest
+sentence-transformers
+jsonschema

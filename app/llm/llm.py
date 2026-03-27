@@ -46,12 +46,54 @@ class LLMClient:
         system_text = (system_prompt or "").lower()
         prompt_text = prompt.lower()
 
-        # Planner fallback
-        if "规划器" in (system_prompt or "") or "tool" in system_text and "json 数组" in (system_prompt or ""):
+        sp_low = (system_prompt or "").lower()
+
+        # Recovery planner fallback (must run before generic planner — both contain 规划器)
+        if "第二次规划" in sp_low or "恢复规划" in sp_low:
             return json.dumps(
                 [
-                    {"tool": "search_tool", "input": "检索与用户问题最相关的代码片段"},
-                    {"tool": "analyze_tool", "input": "结合检索结果给出技术分析与结论"},
+                    {
+                        "id": "r1",
+                        "deps": [],
+                        "tool": "search_tool",
+                        "args": {"query": "项目 模块 入口 核心 代码结构 逻辑"},
+                        "success_criteria": "放宽检索后得到非空相关片段",
+                        "max_retries": 1,
+                    },
+                    {
+                        "id": "r2",
+                        "deps": ["r1"],
+                        "tool": "analyze_tool",
+                        "args": {
+                            "input": "结合放宽后的检索结果分析；若仍无代码片段，说明假设并给出排查步骤。",
+                        },
+                        "success_criteria": "输出可执行结论或明确下一步",
+                        "max_retries": 0,
+                    },
+                ],
+                ensure_ascii=False,
+            )
+
+        # Planner fallback (structured plan: id/deps/tool/args/success_criteria)
+        if "规划器" in sp_low or ("json" in sp_low and "数组" in sp_low and "tool" in sp_low):
+            return json.dumps(
+                [
+                    {
+                        "id": "s1",
+                        "deps": [],
+                        "tool": "search_tool",
+                        "args": {"query": "检索与用户问题最相关的代码片段"},
+                        "success_criteria": "检索到与问题相关的代码片段",
+                        "max_retries": 1,
+                    },
+                    {
+                        "id": "s2",
+                        "deps": ["s1"],
+                        "tool": "analyze_tool",
+                        "args": {"input": "结合检索结果给出技术分析与结论"},
+                        "success_criteria": "输出技术分析结论与可执行建议",
+                        "max_retries": 0,
+                    },
                 ],
                 ensure_ascii=False,
             )
