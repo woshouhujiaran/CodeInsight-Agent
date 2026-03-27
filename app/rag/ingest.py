@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 from app.rag.chunker import TokenChunker
@@ -15,10 +16,14 @@ class CodeIngestor:
         store: FaissVectorStore,
         chunk_size: int = 500,
         chunk_overlap: int = 50,
+        batch_size: int = 256,
+        excluded_dirs: tuple[str, ...] = (".git", ".pytest_cache", "__pycache__", ".venv", "venv"),
         logger_name: str = "codeinsight.rag.ingest",
     ) -> None:
         self.store = store
         self.chunker = TokenChunker(chunk_size=chunk_size, overlap=chunk_overlap)
+        self.batch_size = max(1, batch_size)
+        self.excluded_dirs = set(excluded_dirs)
         self.logger = get_logger(logger_name)
 
     def ingest_directory(
@@ -33,32 +38,39 @@ class CodeIngestor:
 
         files_read = 0
         chunks_created = 0
+        chunks_indexed = 0
         docs: list[CodeDocument] = []
 
-        for path in base.rglob("*"):
-            if not path.is_file():
-                continue
-            if include_suffixes and path.suffix.lower() not in include_suffixes:
-                continue
-            try:
-                content = path.read_text(encoding="utf-8")
-            except UnicodeDecodeError:
-                self.logger.debug("Skip non-utf8 file: %s", path)
-                continue
+        for root, dirs, files in os.walk(base):
+            dirs[:] = [d for d in dirs if d not in self.excluded_dirs]
+            for filename in files:
+                path = Path(root) / filename
+                if include_suffixes and path.suffix.lower() not in include_suffixes:
+                    continue
+                try:
+                    content = path.read_text(encoding="utf-8")
+                except UnicodeDecodeError:
+                    self.logger.debug("Skip non-utf8 file: %s", path)
+                    continue
 
-            files_read += 1
-            chunks = self.chunker.split(file_path=str(path), text=content)
-            chunks_created += len(chunks)
-            for chunk in chunks:
-                docs.append(
-                    CodeDocument(
-                        file_path=chunk.file_path,
-                        content=chunk.content,
-                        chunk_id=chunk.chunk_id,
+                files_read += 1
+                chunks = self.chunker.split(file_path=str(path), text=content)
+                chunks_created += len(chunks)
+                for chunk in chunks:
+                    docs.append(
+                        CodeDocument(
+                            file_path=chunk.file_path,
+                            content=chunk.content,
+                            chunk_id=chunk.chunk_id,
+                        )
                     )
-                )
 
-        chunks_indexed = self.store.add_documents(docs)
+                if len(docs) >= self.batch_size:
+                    chunks_indexed += self.store.add_documents(docs)
+                    docs.clear()
+
+        if docs:
+            chunks_indexed += self.store.add_documents(docs)
         self.logger.info(
             "Ingest finished: files_read=%d, chunks_created=%d, chunks_indexed=%d",
             files_read,

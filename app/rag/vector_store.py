@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from functools import lru_cache
 import hashlib
 from pathlib import Path
 from typing import Iterable
@@ -110,12 +111,19 @@ class FaissVectorStore:
             tokens = [text]
 
         for token in tokens:
-            digest = hashlib.sha256(token.encode("utf-8")).digest()
-            idx = int.from_bytes(digest[:4], "little") % self.dim
-            val = (int.from_bytes(digest[4:8], "little") % 1000) / 1000.0
+            idx, val = self._token_projection(token, self.dim)
             vec[idx] += val
 
         norm = np.linalg.norm(vec)
         if norm > 0:
             vec /= norm
         return vec
+
+    @staticmethod
+    @lru_cache(maxsize=50000)
+    def _token_projection(token: str, dim: int) -> tuple[int, float]:
+        """Cache token hash projection to reduce repeated SHA256 work."""
+        digest = hashlib.sha256(token.encode("utf-8")).digest()
+        idx = int.from_bytes(digest[:4], "little") % dim
+        val = (int.from_bytes(digest[4:8], "little") % 1000) / 1000.0
+        return idx, val
