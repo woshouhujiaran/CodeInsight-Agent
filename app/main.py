@@ -16,6 +16,9 @@ from app.rag.embeddings import create_embedding_backend
 from app.rag.load_or_build import load_or_build_vector_store
 from app.rag.retriever import CodeRetriever
 from app.tools.analyze_tool import AnalyzeTool
+from app.tools.filesystem_tools import GrepTool, ListDirTool, ReadFileTool
+from app.tools.run_command_tool import RunCommandTool
+from app.tools.write_tools import ApplyPatchTool, WriteFileTool
 from app.tools.optimize_tool import OptimizeTool
 from app.tools.search_tool import SearchTool
 from app.tools.test_tool import TestTool
@@ -24,9 +27,13 @@ from app.utils.logger import get_logger
 
 
 def render_turn_result(result: object) -> None:
-    """Render agent output in a clearer CLI layout."""
-    plan = getattr(result, "plan", [])
-    tool_results = getattr(result, "tool_results", [])
+    """Render agent output in a clearer CLI layout (Planner 或 agentic 回合)."""
+    plan = getattr(result, "plan", None)
+    if plan is None:
+        plan = []
+    tool_results = getattr(result, "tool_results", None)
+    if tool_results is None:
+        tool_results = getattr(result, "tool_trace", [])
     answer = getattr(result, "answer", "")
 
     print("\n" + "=" * 18 + " PLAN " + "=" * 18)
@@ -59,6 +66,14 @@ def render_turn_result(result: object) -> None:
     print(answer or "(empty)")
 
 
+def agent_write_tools_enabled() -> bool:
+    return os.getenv("AGENT_ALLOW_WRITE", "").strip() == "1"
+
+
+def agent_shell_enabled() -> bool:
+    return os.getenv("AGENT_ALLOW_SHELL", "").strip() == "1"
+
+
 def default_index_dir(codebase_dir: str) -> Path:
     """Stable per-codebase path under data/index/ to avoid mixing indexes."""
     h = hashlib.sha256(str(Path(codebase_dir).resolve()).encode("utf-8")).hexdigest()[:16]
@@ -87,16 +102,35 @@ def build_agent(
     )
     logger.info("RAG: %s", rag_meta)
 
+    workspace_root = Path(codebase_dir).resolve()
     retriever = CodeRetriever(store=store)
     registry = ToolRegistry()
     registry.register(SearchTool(retriever=retriever, top_k=top_k))
     registry.register(AnalyzeTool(llm=llm))
     registry.register(OptimizeTool(llm=llm))
     registry.register(TestTool(llm=llm))
+    registry.register(ReadFileTool(workspace_root=workspace_root))
+    registry.register(ListDirTool(workspace_root=workspace_root))
+    registry.register(GrepTool(workspace_root=workspace_root))
 
-    planner = Planner(llm=llm)
+    write_on = agent_write_tools_enabled()
+    if write_on:
+        registry.register(ApplyPatchTool(workspace_root=workspace_root))
+        registry.register(WriteFileTool(workspace_root=workspace_root))
+        logger.info("AGENT_ALLOW_WRITE=1: apply_patch_tool / write_file_tool 已注册。")
+
+    if agent_shell_enabled():
+        registry.register(RunCommandTool(workspace_root=workspace_root))
+        logger.info("AGENT_ALLOW_SHELL=1: run_command_tool 已注册。")
+
+    planner = Planner(llm=llm, write_tools_enabled=write_on)
     executor = Executor(registry=registry)
-    return CodeAgent(planner=planner, executor=executor, llm=llm)
+    return CodeAgent(
+        planner=planner,
+        executor=executor,
+        llm=llm,
+        workspace_root=str(workspace_root),
+    )
 
 
 def parse_args() -> argparse.Namespace:
@@ -118,6 +152,17 @@ def parse_args() -> argparse.Namespace:
         help="Rebuild FAISS index from codebase even if a matching snapshot exists",
     )
     parser.add_argument("--query", default="", help="Single-turn query mode")
+    parser.add_argument(
+        "--agentic",
+        action="store_true",
+        help="使用 run_agentic 多轮 JSON 工具循环（默认仍为 Planner + Executor 单次计划）",
+    )
+    parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=8,
+        help="agentic 模式下每轮用户输入允许的大模型步数上限（默认 8）",
+    )
     return parser.parse_args()
 
 
@@ -140,12 +185,19 @@ def main() -> None:
         force_reindex=args.force_reindex,
     )
 
+    use_agentic = bool(args.agentic)
+    max_turns = max(1, int(args.max_turns))
+
     if args.query.strip():
-        result = agent.run(args.query)
+        if use_agentic:
+            result = agent.run_agentic(args.query, max_turns=max_turns)
+        else:
+            result = agent.run(args.query)
         render_turn_result(result)
         return
 
-    print("CodeInsight-Agent interactive mode. 输入 exit 退出。")
+    mode_hint = "（agentic 模式）" if use_agentic else ""
+    print(f"CodeInsight-Agent interactive mode{mode_hint}。输入 exit 退出。")
     while True:
         user_query = input("\n你> ").strip()
         if not user_query:
@@ -154,7 +206,10 @@ def main() -> None:
             print("Bye.")
             break
 
-        result = agent.run(user_query)
+        if use_agentic:
+            result = agent.run_agentic(user_query, max_turns=max_turns)
+        else:
+            result = agent.run(user_query)
         render_turn_result(result)
 
 

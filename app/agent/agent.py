@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import deque
+import json
 import statistics
 import time
 from typing import Any
@@ -11,7 +12,8 @@ from app.agent.executor import Executor
 from app.agent.memory import ConversationMemory
 from app.agent.planner import Planner
 from app.agent.recovery import apply_recovery_strategy, evaluate_recovery
-from app.llm.llm import LLMClient
+from app.agent.tool_specs import compact_tool_specs_for_prompt
+from app.llm.llm import AGENTIC_JSON_SYSTEM_SUFFIX, AGENTIC_TOOL_USE_POLICY, LLMClient
 from app.utils.logger import get_logger, log_event, set_trace_id
 
 
@@ -24,6 +26,16 @@ class AgentTurnResult:
     tool_results: list[dict[str, Any]]
     context: str
     recovery_applied: bool = False
+
+
+@dataclass
+class AgenticTurnResult:
+    """Structured response for one agentic multi-tool turn."""
+
+    answer: str
+    messages: list[dict[str, str]]
+    tool_trace: list[dict[str, Any]]
+    trace_id: str = ""
 
 
 class CodeAgent:
@@ -46,6 +58,8 @@ class CodeAgent:
         llm: LLMClient,
         memory: ConversationMemory | None = None,
         logger_name: str = "codeinsight.agent",
+        *,
+        workspace_root: str | None = None,
     ) -> None:
         self.planner = planner
         self.executor = executor
@@ -53,6 +67,7 @@ class CodeAgent:
         self.memory = memory or ConversationMemory()
         self.logger = get_logger(logger_name)
         self._recent_turn_metrics: deque[dict[str, float]] = deque(maxlen=20)
+        self._workspace_root = workspace_root
 
     def run(self, user_query: str) -> AgentTurnResult:
         """Run one complete agent turn for a user query."""
@@ -162,6 +177,124 @@ class CodeAgent:
             context=context,
             recovery_applied=recovery_applied,
         )
+
+    def run_agentic(
+        self,
+        user_query: str,
+        *,
+        max_turns: int = 8,
+        workspace_root: str | None = None,
+    ) -> AgenticTurnResult:
+        """
+        Multi-turn tool loop: each LLM step returns JSON either final answer or tool_calls.
+
+        Does not use Planner; tools run via Executor.execute_agentic_calls.
+        """
+        trace_id = uuid4().hex[:12]
+        set_trace_id(trace_id)
+        turn_started = time.perf_counter()
+        root = workspace_root if workspace_root is not None else (self._workspace_root or ".")
+        self.logger.info("Agentic run query=%s max_turns=%s root=%s", user_query, max_turns, root)
+        log_event(
+            self.logger,
+            module="agent",
+            action="run_agentic_start",
+            status="ok",
+            user_query_len=len(user_query),
+            max_turns=max_turns,
+        )
+
+        tool_specs_json = compact_tool_specs_for_prompt(self.executor.registry.list_specs())
+        system_prompt = (
+            f"工作区根目录（说明用途；调用工具时路径需与此一致）: {root}\n"
+            "安全：不要执行任意 shell、不要访问工作区外路径；只使用下列工具。\n\n"
+            + AGENTIC_TOOL_USE_POLICY
+            + f"可用工具（JSON 数组，每项含 name、description、parameters JSON Schema；调用时 arguments 必须满足 parameters）：\n"
+            f"{tool_specs_json}\n\n"
+            + AGENTIC_JSON_SYSTEM_SUFFIX
+        )
+
+        transcript: list[dict[str, str]] = []
+        history = self.memory.get_messages()
+        for item in history[-10:]:
+            role = item.get("role", "")
+            content = item.get("content", "")
+            if role in ("user", "assistant") and isinstance(content, str) and content.strip():
+                transcript.append({"role": role, "content": content})
+        transcript.append({"role": "user", "content": user_query})
+
+        tool_trace: list[dict[str, Any]] = []
+        answer = ""
+        max_turns = max(1, int(max_turns))
+
+        for _ in range(max_turns):
+            decision = self.llm.generate_agentic_json_turn(transcript, system_prompt=system_prompt)
+            transcript.append({"role": "assistant", "content": json.dumps(decision, ensure_ascii=False)})
+
+            if decision.get("type") == "final":
+                answer = str(decision.get("content", ""))
+                break
+
+            if decision.get("type") == "tool_calls":
+                calls = decision.get("calls") or []
+                if not isinstance(calls, list):
+                    transcript.append(
+                        {
+                            "role": "user",
+                            "content": "工具调用格式错误：calls 必须是列表。请输出 final 或修正 tool_calls。",
+                        }
+                    )
+                    continue
+                batch = self.executor.execute_agentic_calls(calls)
+                tool_trace.extend(batch)
+                transcript.append({"role": "user", "content": self._format_agentic_tool_feedback(batch)})
+                continue
+
+            answer = "模型返回了未知的 type 字段。"
+            break
+        else:
+            answer = answer or "已达到最大对话轮次仍未给出最终回答（type=final）。"
+
+        self.memory.add_user_message(user_query)
+        self.memory.add_assistant_message(answer)
+        self.memory.add_turn_metadata(
+            plan=[],
+            tool_results=tool_trace,
+            recovery_applied=False,
+            trace_id=trace_id,
+            extra={"agentic": True},
+        )
+
+        turn_duration_ms = int((time.perf_counter() - turn_started) * 1000)
+        self._record_turn_metrics(tool_results=tool_trace, duration_ms=turn_duration_ms)
+        log_event(
+            self.logger,
+            module="agent",
+            action="run_agentic_finish",
+            status="ok",
+            duration_ms=turn_duration_ms,
+            tool_steps=len(tool_trace),
+            trace_id=trace_id,
+        )
+
+        return AgenticTurnResult(
+            answer=answer,
+            messages=list(transcript),
+            tool_trace=tool_trace,
+            trace_id=trace_id,
+        )
+
+    def _format_agentic_tool_feedback(self, results: list[dict[str, Any]]) -> str:
+        lines: list[str] = ["以下为工具执行结果（每行一个 JSON 对象）："]
+        for r in results:
+            payload = {
+                "tool": r.get("tool"),
+                "step_id": r.get("step_id"),
+                "status": r.get("status"),
+                "output": r.get("output"),
+            }
+            lines.append(json.dumps(payload, ensure_ascii=False))
+        return "\n".join(lines)
 
     def _record_turn_metrics(self, *, tool_results: list[dict[str, Any]], duration_ms: int) -> None:
         if not tool_results:

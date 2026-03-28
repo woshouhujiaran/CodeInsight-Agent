@@ -3,11 +3,72 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 import os
+import re
 import time
 from typing import Any
 from urllib import error, request
 
 from app.utils.logger import get_logger, log_event
+
+# Agentic system prompt：工具编排策略（与 RAG/实现无关，仅约束模型行为）
+AGENTIC_TOOL_USE_POLICY = (
+    "工具使用策略：\n"
+    "1) 不确定符号、文件或模块位置时，先用 search_tool 做语义检索，再从返回片段中取得真实路径或关键词；\n"
+    "2) 需要完整控制流、函数体、多行上下文或精确字符串定位时，使用 read_file_tool 与 grep_tool；路径须来自检索结果、"
+    "list_dir_tool 或用户明确给出的工作区内相对路径；\n"
+    "3) 严禁编造不存在的路径、行号或参数；若工具返回 error/status 非 ok 或提示路径/参数非法，必须阅读报错内容，"
+    "修正 arguments 后再次发起 tool_calls，禁止无改正地重复相同调用。\n\n"
+)
+
+AGENTIC_JSON_SYSTEM_SUFFIX = (
+    "你必须只输出一个 JSON 对象，不要 Markdown、不要代码围栏、不要额外说明。"
+    '格式二选一：1) {"type":"final","content":"<给用户的最终回答>"}；'
+    '2) {"type":"tool_calls","calls":[{"name":"<工具名>","arguments":{...}}]}。'
+    "arguments 必须是 JSON 对象；不要编造工具名。"
+)
+
+
+def strip_json_fences(text: str) -> str:
+    text = text.strip()
+    m = re.match(r"^```(?:json)?\s*([\s\S]*?)\s*```\s*$", text, re.IGNORECASE)
+    if m:
+        return m.group(1).strip()
+    return text
+
+
+def parse_agentic_turn(raw: str) -> dict[str, Any] | None:
+    """Parse and validate agentic turn JSON. Returns None if invalid."""
+    try:
+        data = json.loads(strip_json_fences(raw))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(data, dict):
+        return None
+    typ = data.get("type")
+    if typ == "final":
+        content = data.get("content")
+        if not isinstance(content, str):
+            return None
+        return {"type": "final", "content": content}
+    if typ == "tool_calls":
+        calls = data.get("calls")
+        if not isinstance(calls, list) or not calls:
+            return None
+        normalized: list[dict[str, Any]] = []
+        for item in calls:
+            if not isinstance(item, dict):
+                return None
+            name = item.get("name")
+            if not isinstance(name, str) or not name.strip():
+                return None
+            args = item.get("arguments")
+            if args is None:
+                args = {}
+            if not isinstance(args, dict):
+                return None
+            normalized.append({"name": name.strip(), "arguments": args})
+        return {"type": "tool_calls", "calls": normalized}
+    return None
 
 
 @dataclass
@@ -204,6 +265,86 @@ class LLMClient:
         )
         return "已完成分析：建议先定位核心模块，再结合测试与性能数据做优化。"
 
+    def generate_agentic_json_turn(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        system_prompt: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        One agentic step: chat completion expecting a single JSON object.
+
+        On parse failure, retries once with an extra user nudge (no new deps).
+        Falls back to a generic final message if the API is unavailable.
+        """
+        started = time.perf_counter()
+        base: list[dict[str, str]] = []
+        if system_prompt:
+            base.append({"role": "system", "content": system_prompt})
+        base.extend(messages)
+
+        def complete(extra_user: str | None, *, json_mode: bool) -> str | None:
+            msgs = list(base)
+            if extra_user:
+                msgs.append({"role": "user", "content": extra_user})
+            return self._chat_completion_messages(msgs, response_format_json=json_mode)
+
+        raw = complete(None, json_mode=True)
+        if raw is None:
+            raw = complete(None, json_mode=False)
+        parsed = parse_agentic_turn(raw or "")
+        if parsed is not None:
+            log_event(
+                self.logger,
+                module="llm",
+                action="generate_agentic_json_turn",
+                status="ok",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                provider=self.provider,
+                model=self.model,
+                source="api" if raw else "fallback",
+                attempts=1,
+            )
+            return parsed
+
+        nudge = (
+            "上一次输出不是合法 JSON 或不符合约定。请严格输出一个 JSON 对象："
+            '{"type":"final","content":"..."} 或 {"type":"tool_calls","calls":[...]}，不要其它文字。'
+        )
+        raw2 = complete(nudge, json_mode=True)
+        if raw2 is None:
+            raw2 = complete(nudge, json_mode=False)
+        parsed2 = parse_agentic_turn(raw2 or "")
+        if parsed2 is not None:
+            log_event(
+                self.logger,
+                module="llm",
+                action="generate_agentic_json_turn",
+                status="ok",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                provider=self.provider,
+                model=self.model,
+                source="api" if raw2 else "fallback",
+                attempts=2,
+            )
+            return parsed2
+
+        log_event(
+            self.logger,
+            module="llm",
+            action="generate_agentic_json_turn",
+            status="error",
+            duration_ms=int((time.perf_counter() - started) * 1000),
+            provider=self.provider,
+            model=self.model,
+            source="fallback",
+            attempts=2,
+        )
+        return {
+            "type": "final",
+            "content": "模型未返回可解析的 JSON，请检查 API 或提示词。",
+        }
+
     def generate_answer(
         self,
         user_query: str,
@@ -220,6 +361,14 @@ class LLMClient:
         return answer
 
     def _chat_completion(self, messages: list[dict[str, str]]) -> str | None:
+        return self._chat_completion_messages(messages, response_format_json=False)
+
+    def _chat_completion_messages(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        response_format_json: bool,
+    ) -> str | None:
         provider = self.provider.lower().strip()
         api_key = self._resolve_api_key(provider)
         if not api_key:
@@ -239,6 +388,8 @@ class LLMClient:
             "messages": messages,
             "temperature": 0.2,
         }
+        if response_format_json:
+            payload["response_format"] = {"type": "json_object"}
 
         req = request.Request(
             url=url,
@@ -257,6 +408,9 @@ class LLMClient:
         except error.HTTPError as exc:
             error_body = exc.read().decode("utf-8", errors="ignore")
             self.logger.error("LLM HTTP error: %s, body=%s", exc.code, error_body)
+            if response_format_json and exc.code in (400, 404):
+                # Provider may not support response_format; caller can retry without it.
+                self.logger.info("JSON response_format rejected; caller may retry without json_mode.")
             return None
         except Exception as exc:  # noqa: BLE001
             self.logger.error("LLM request failed: %s", exc)

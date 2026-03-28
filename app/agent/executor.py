@@ -3,9 +3,11 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 import time
 from typing import Any
+from uuid import uuid4
 
 from app.agent.plan_schema import topological_sort_steps
 from app.agent.tool_registry import ToolRegistry
+from app.agent.tool_specs import validate_agentic_tool_call
 from app.tools.base_tool import ensure_tool_result, make_tool_result, tool_result_to_legacy_output
 from app.utils.logger import get_logger
 
@@ -35,6 +37,71 @@ class Executor:
             return []
         ordered = topological_sort_steps(plan)
         return self.execute_tools(ordered)
+
+    def execute_agentic_calls(self, calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """
+        Run agentic-style tool invocations in list order (no deps).
+
+        Each call: {"name": str, "arguments": dict}.
+        Invalid arguments produce an error result without invoking the tool.
+        """
+        if not calls:
+            return []
+        results: list[dict[str, Any]] = []
+        for batch_idx, call in enumerate(calls, start=1):
+            step_started = time.perf_counter()
+            if not isinstance(call, dict):
+                name: Any = None
+                args: dict[str, Any] = {}
+            else:
+                name = call.get("name")
+                args = call.get("arguments")
+                if not isinstance(args, dict):
+                    args = {}
+            step_id = f"ag_{batch_idx - 1}_{uuid4().hex[:10]}"
+
+            err = validate_agentic_tool_call(self.registry, name, args)
+            if err:
+                results.append(
+                    {
+                        "step": batch_idx,
+                        "step_id": step_id,
+                        "tool": name,
+                        "status": "error",
+                        "output": err,
+                        "tool_result": make_tool_result(
+                            status="error",
+                            data=None,
+                            error=err,
+                            meta={"invalid_arguments": True},
+                        ),
+                        "success_criteria": "",
+                        "attempts": 0,
+                        "error_type": "permanent",
+                        "duration_ms": int((time.perf_counter() - step_started) * 1000),
+                        "timed_out": False,
+                        "deps": [],
+                    }
+                )
+                continue
+
+            batch = self.execute_tools(
+                [
+                    {
+                        "id": step_id,
+                        "deps": [],
+                        "tool": name,
+                        "args": args,
+                        "success_criteria": "",
+                        "max_retries": 0,
+                    }
+                ]
+            )
+            if batch:
+                row = dict(batch[0])
+                row["step"] = batch_idx
+                results.append(row)
+        return results
 
     def execute_tools(self, tool_calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """

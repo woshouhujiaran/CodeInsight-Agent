@@ -7,8 +7,85 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from typing import Any
 
 from app.utils.logger import get_logger
+
+
+def minimal_subprocess_env() -> dict[str, str]:
+    """Minimal environment for subprocess (PATH, Windows dirs, UTF-8). Reused by sandbox and run_command."""
+    env: dict[str, str] = {}
+    for key in (
+        "SYSTEMROOT",
+        "WINDIR",
+        "PATH",
+        "PYTHONPATH",
+        "TEMP",
+        "TMP",
+        "USERPROFILE",
+        "APPDATA",
+        "LOCALAPPDATA",
+    ):
+        value = os.environ.get(key)
+        if value:
+            env[key] = value
+    env["PYTHONIOENCODING"] = "utf-8"
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    return env
+
+
+def truncate_process_output(text: str | None, max_chars: int) -> str:
+    if text is None:
+        return ""
+    if len(text) <= max_chars:
+        return text
+    keep = max(max_chars - 80, 0)
+    truncated = text[:keep]
+    return f"{truncated}\n... [truncated output: original_len={len(text)}]"
+
+
+def run_workspace_command(
+    argv: list[str],
+    *,
+    cwd: Path,
+    timeout_seconds: float,
+    max_output_chars: int = 8000,
+    logger: Any | None = None,
+) -> dict[str, Any]:
+    """
+    Run argv with shell=False under cwd. Captures stdout/stderr, truncates like SandboxRunner.
+    Returns dict: returncode, stdout, stderr, timed_out (bool).
+    """
+    log = logger or get_logger("codeinsight.sandbox.workspace_cmd")
+    log.info("run_workspace_command cwd=%s argv=%s", cwd, argv)
+    env = minimal_subprocess_env()
+    try:
+        completed = subprocess.run(
+            argv,
+            cwd=str(cwd.resolve()),
+            capture_output=True,
+            text=True,
+            timeout=timeout_seconds,
+            check=False,
+            env=env,
+        )
+        return {
+            "returncode": completed.returncode,
+            "stdout": truncate_process_output(completed.stdout, max_output_chars),
+            "stderr": truncate_process_output(completed.stderr, max_output_chars),
+            "timed_out": False,
+        }
+    except subprocess.TimeoutExpired as exc:
+        log.warning("run_workspace_command timed out after %ss", timeout_seconds)
+        return {
+            "returncode": -1,
+            "stdout": truncate_process_output(exc.stdout, max_output_chars),
+            "stderr": truncate_process_output(
+                (exc.stderr or "") + f"\n[error: 命令超时（>{timeout_seconds}s）]",
+                max_output_chars,
+            ),
+            "timed_out": True,
+        }
 
 
 @dataclass
@@ -63,15 +140,15 @@ class SandboxRunner:
                 text=True,
                 timeout=self.timeout_seconds,
                 check=False,
-                env=self._minimal_env(),
+                env=minimal_subprocess_env(),
             )
             success = completed.returncode == 0
             self.logger.info("Sandbox finished with return code: %d", completed.returncode)
             return ExecutionResult(
                 success=success,
                 return_code=completed.returncode,
-                stdout=self._truncate_output(completed.stdout),
-                stderr=self._truncate_output(completed.stderr),
+                stdout=truncate_process_output(completed.stdout, self.max_output_chars),
+                stderr=truncate_process_output(completed.stderr, self.max_output_chars),
                 timed_out=False,
                 command=command,
                 file_path=str(test_file),
@@ -81,8 +158,8 @@ class SandboxRunner:
             return ExecutionResult(
                 success=False,
                 return_code=-1,
-                stdout=self._truncate_output(exc.stdout or ""),
-                stderr=self._truncate_output(exc.stderr or ""),
+                stdout=truncate_process_output(exc.stdout or "", self.max_output_chars),
+                stderr=truncate_process_output(exc.stderr or "", self.max_output_chars),
                 timed_out=True,
                 command=command,
                 file_path=str(test_file),
@@ -107,29 +184,3 @@ class SandboxRunner:
         self.logger.info("Wrote sandbox test file: %s", test_file)
         return test_file
 
-    def _minimal_env(self) -> dict[str, str]:
-        env: dict[str, str] = {}
-        for key in (
-            "SYSTEMROOT",
-            "WINDIR",
-            "PATH",
-            "PYTHONPATH",
-            "TEMP",
-            "TMP",
-            "USERPROFILE",
-            "APPDATA",
-            "LOCALAPPDATA",
-        ):
-            value = os.environ.get(key)
-            if value:
-                env[key] = value
-        env["PYTHONIOENCODING"] = "utf-8"
-        env["PYTHONDONTWRITEBYTECODE"] = "1"
-        return env
-
-    def _truncate_output(self, text: str) -> str:
-        if len(text) <= self.max_output_chars:
-            return text
-        keep = max(self.max_output_chars - 80, 0)
-        truncated = text[:keep]
-        return f"{truncated}\n... [truncated output: original_len={len(text)}]"

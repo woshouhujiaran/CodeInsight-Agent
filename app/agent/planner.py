@@ -12,9 +12,9 @@ from app.agent.plan_schema import (
 )
 from app.llm.llm import LLMClient
 from app.llm.prompt import (
-    PLANNER_SYSTEM_PROMPT,
-    RECOVERY_PLANNER_SYSTEM_PROMPT,
+    build_planner_system_prompt,
     build_planner_user_prompt,
+    build_recovery_planner_system_prompt,
     build_recovery_planner_user_prompt,
 )
 from app.utils.logger import get_logger
@@ -23,15 +23,25 @@ from app.utils.logger import get_logger
 class Planner:
     """LLM-driven planner that outputs structured JSON tool plan (JSON Schema validated)."""
 
-    def __init__(self, llm: LLMClient, logger_name: str = "codeinsight.planner") -> None:
+    def __init__(
+        self,
+        llm: LLMClient,
+        logger_name: str = "codeinsight.planner",
+        *,
+        write_tools_enabled: bool = False,
+    ) -> None:
         self.llm = llm
         self.logger = get_logger(logger_name)
         self.last_plan_score: dict[str, Any] | None = None
+        self._write_tools_enabled = write_tools_enabled
 
     def make_plan(self, user_query: str, history: list[dict[str, str]]) -> list[dict[str, Any]]:
         history_text = self._history_to_text(history)
         user_prompt = build_planner_user_prompt(user_query=user_query, history_text=history_text)
-        raw = self.llm.generate_text(prompt=user_prompt, system_prompt=PLANNER_SYSTEM_PROMPT)
+        raw = self.llm.generate_text(
+            prompt=user_prompt,
+            system_prompt=build_planner_system_prompt(self._write_tools_enabled),
+        )
         self.logger.debug("Raw planner output: %s", raw)
 
         return self._parse_and_validate_plan(raw=raw, user_query=user_query, recovery=False)
@@ -51,7 +61,10 @@ class Planner:
             previous_plan_json=json.dumps(previous_plan, ensure_ascii=False),
             tool_results_summary=self._summarize_tool_results(tool_results),
         )
-        raw = self.llm.generate_text(prompt=user_prompt, system_prompt=RECOVERY_PLANNER_SYSTEM_PROMPT)
+        raw = self.llm.generate_text(
+            prompt=user_prompt,
+            system_prompt=build_recovery_planner_system_prompt(self._write_tools_enabled),
+        )
         self.logger.debug("Recovery planner raw output: %s", raw)
 
         return self._parse_and_validate_plan(raw=raw, user_query=user_query, recovery=True)
@@ -134,7 +147,7 @@ class Planner:
         if not isinstance(data, list) or not data:
             return None
         try:
-            validate_plan_json_schema(data)
+            validate_plan_json_schema(data, write_tools_enabled=self._write_tools_enabled)
         except Exception as exc:  # noqa: BLE001
             self.logger.debug("Plan JSON Schema validation failed: %s", exc)
             return None
@@ -230,10 +243,12 @@ class Planner:
     def _score_plan_semantics(self, *, plan: list[dict[str, Any]], user_query: str) -> dict[str, Any]:
         tools = [str(step.get("tool", "")) for step in plan]
         has_search = "search_tool" in tools
+        has_fs = any(t in tools for t in ("read_file_tool", "list_dir_tool", "grep_tool"))
+        has_context = has_search or has_fs
         has_analyze = "analyze_tool" in tools
         has_test = "test_tool" in tools
 
-        completeness = 1.0 if (has_search and has_analyze) else 0.6 if (has_search or has_analyze) else 0.3
+        completeness = 1.0 if (has_context and has_analyze) else 0.6 if (has_context or has_analyze) else 0.3
         dependency = 1.0
         if len(plan) >= 2:
             for i, step in enumerate(plan[1:], start=1):

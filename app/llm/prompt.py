@@ -1,14 +1,33 @@
 from __future__ import annotations
 
-ALLOWED_TOOLS = [
-    "search_tool",
-    "analyze_tool",
-    "optimize_tool",
-    "test_tool",
-]
+from app.agent.plan_schema import FULL_PLAN_TOOL_ENUM, READONLY_PLAN_TOOL_ENUM
+
+ALLOWED_TOOLS = list(READONLY_PLAN_TOOL_ENUM)
 
 
-PLANNER_SYSTEM_PROMPT = """
+def build_planner_system_prompt(write_tools_enabled: bool = False) -> str:
+    tool_line = " / ".join(FULL_PLAN_TOOL_ENUM if write_tools_enabled else READONLY_PLAN_TOOL_ENUM)
+    write_args = ""
+    if write_tools_enabled:
+        write_args = (
+            "       * apply_patch_tool：字符串 \"patch\" 为完整 unified diff（UTF-8）；可选整数 \"strip\"（0 或 1）\n"
+            "       * write_file_tool：\"path\"、\"content\"（UTF-8 全文）；可选 \"create_only\"（true 则仅新建）；"
+            "覆盖已存在文件时可传 \"expected_content_hash\"，须与最近一次 read_file_tool 返回的 meta.content_sha256 一致\n"
+        )
+    tail = [
+        "3) 至少 1 步，最多 6 步。",
+        "4) deps 必须构成有向无环图：只能依赖已声明的 id，且不可形成环。",
+        "5) 顺序要合理：通常先 search_tool 或 list_dir_tool / grep_tool / read_file_tool 收集上下文，再 analyze_tool；若用户明确要求优化或测试，可追加 optimize_tool / test_tool。",
+    ]
+    if write_tools_enabled:
+        tail.append("6) 修改代码前须先用 read_file 确认路径与内容；写入类工具仅在确有必要时使用。")
+        tail.append("7) 信息不足时优先检索再分析。")
+        tail.append("8) 严禁 Markdown、注释、代码块标记。")
+    else:
+        tail.append("6) 信息不足时优先检索再分析。")
+        tail.append("7) 严禁 Markdown、注释、代码块标记。")
+    tail_text = "\n".join(tail)
+    return f"""
 你是 CodeInsight-Agent 的规划器（Planner）。
 你的任务是根据用户 query 与历史对话，输出“结构化工具调用计划”（JSON 数组）。
 
@@ -17,18 +36,20 @@ PLANNER_SYSTEM_PROMPT = """
 2) 每个元素必须是对象，字段（除 max_retries 外）为必填：
    - "id": 字符串，唯一标识一步（如 s1、retrieve_auth）；仅字母数字下划线与短横线
    - "deps": 字符串数组，列出必须先完成的步骤 id（无前驱则 []）
-   - "tool": search_tool / analyze_tool / optimize_tool / test_tool 之一
+   - "tool": {tool_line} 之一
    - "args": 对象，按工具传入参数：
        * search_tool：使用 "query" 或 "input"（非空字符串）作为检索语句
        * analyze_tool / optimize_tool / test_tool：使用 "input"（非空字符串）；test_tool 可含 [ORIGINAL_CODE]/[OPTIMIZED_CODE] 段落
-   - "success_criteria": 字符串，用一句话描述该步“算成功”的判定标准（便于日志与复盘）
+       * read_file_tool："path"（相对工作区根）；可选 "start_line"/"end_line"/"max_chars"
+       * list_dir_tool："path"；可选 "depth"（1~8）、"max_entries"
+       * grep_tool："pattern"（正则）、"path"；可选 "glob"、"max_matches"
+{write_args}   - "success_criteria": 字符串，用一句话描述该步“算成功”的判定标准（便于日志与复盘）
    - "max_retries": 整数 0~2（可选），表示失败后额外重试次数；缺省视为 0
-3) 至少 1 步，最多 6 步。
-4) deps 必须构成有向无环图：只能依赖已声明的 id，且不可形成环。
-5) 顺序要合理：通常先 search_tool，再 analyze_tool；若用户明确要求优化或测试，可追加 optimize_tool / test_tool。
-6) 信息不足时优先检索再分析。
-7) 严禁 Markdown、注释、代码块标记。
+{tail_text}
 """.strip()
+
+
+PLANNER_SYSTEM_PROMPT = build_planner_system_prompt(False)
 
 
 def build_planner_user_prompt(user_query: str, history_text: str) -> str:
@@ -43,7 +64,25 @@ def build_planner_user_prompt(user_query: str, history_text: str) -> str:
 """.strip()
 
 
-RECOVERY_PLANNER_SYSTEM_PROMPT = """
+def build_recovery_planner_system_prompt(write_tools_enabled: bool = False) -> str:
+    if write_tools_enabled:
+        return """
+你是 CodeInsight-Agent 的规划器（Planner），当前执行「第二次规划 / 恢复规划」。
+
+背景：首轮工具执行未满足预期（例如检索结果为空、search_tool 报错）。你需要输出**新的一轮**结构化计划（JSON 数组），用于补救。
+
+硬性要求：
+1) 只能输出 JSON 数组，不要输出任何额外文本。
+2) 每个 step 的字段与首轮规划相同：id、deps、tool、args、success_criteria、可选 max_retries（tool 集合与首轮一致，含写工具时可用 apply_patch_tool / write_file_tool）。
+3) id 请使用新的唯一前缀（建议 r1、r2、r3…），勿与首轮 id 冲突。
+4) 补救策略（至少选其一并体现在 args 中）：
+   - 将 search_tool 的 query/input **放宽、泛化**：同义词、模块名、文件名关键词、去掉过细过滤词；或拆成两步 search 再合并分析。
+   - 若首轮仅有空检索，仍应安排 analyze_tool，并在 input 中说明「检索为空，请基于用户问题做假设性分析」。
+5) 至少 1 步，最多 6 步；deps 必须无环。
+6) 若需改文件，须先 read_file 再 apply_patch 或 write_file；覆盖写入须带 expected_content_hash。
+7) 严禁 Markdown、注释、代码块标记。
+""".strip()
+    return """
 你是 CodeInsight-Agent 的规划器（Planner），当前执行「第二次规划 / 恢复规划」。
 
 背景：首轮工具执行未满足预期（例如检索结果为空、search_tool 报错）。你需要输出**新的一轮**结构化计划（JSON 数组），用于补救。
@@ -58,6 +97,9 @@ RECOVERY_PLANNER_SYSTEM_PROMPT = """
 5) 至少 1 步，最多 6 步；deps 必须无环。
 6) 严禁 Markdown、注释、代码块标记。
 """.strip()
+
+
+RECOVERY_PLANNER_SYSTEM_PROMPT = build_recovery_planner_system_prompt(False)
 
 
 def build_recovery_planner_user_prompt(

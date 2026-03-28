@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+"""
+端到端评测默认走 agent.run（Planner 路径）。传入 --agentic 时对每条任务调用 run_agentic
+（可用 tasks.json 单条字段 "agentic": true/false 覆盖 CLI 默认值）。
+模型侧工具策略由 CodeAgent.run_agentic 的 system 提示（含 AGENTIC_TOOL_USE_POLICY）约束。
+"""
+
 import argparse
 import json
 from pathlib import Path
 import time
 from typing import Any
 
+from app.agent.agent import CodeAgent
 from app.main import build_agent, default_index_dir
 
 
@@ -25,6 +32,47 @@ def task_success(answer: str, expected_keywords: list[str]) -> bool:
         if str(kw).lower() in text:
             return True
     return False
+
+
+def task_use_agentic(task: dict[str, Any], *, cli_agentic: bool) -> bool:
+    """Per-task 'agentic' key overrides CLI when present (bool)."""
+    if "agentic" in task:
+        return bool(task["agentic"])
+    return cli_agentic
+
+
+def run_one_eval_task(
+    agent: CodeAgent,
+    task: dict[str, Any],
+    *,
+    cli_agentic: bool,
+    max_turns: int,
+) -> dict[str, Any]:
+    """Run a single eval task; mock-friendly (no API required in tests)."""
+    task_id = str(task.get("id", ""))
+    category = str(task.get("category", "unknown"))
+    query = str(task.get("query", ""))
+    expected_keywords = task.get("expected_keywords", [])
+    if not isinstance(expected_keywords, list):
+        expected_keywords = []
+    use_agentic = task_use_agentic(task, cli_agentic=cli_agentic)
+    started = time.perf_counter()
+    if use_agentic:
+        turn = agent.run_agentic(query, max_turns=max_turns)
+        recovery_applied = False
+    else:
+        turn = agent.run(query)
+        recovery_applied = bool(getattr(turn, "recovery_applied", False))
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    ok = task_success(turn.answer, [str(x) for x in expected_keywords])
+    return {
+        "id": task_id,
+        "category": category,
+        "success": ok,
+        "duration_ms": duration_ms,
+        "recovery_applied": recovery_applied,
+        "agentic": use_agentic,
+    }
 
 
 def summarize(results: list[dict[str, Any]]) -> dict[str, Any]:
@@ -49,6 +97,17 @@ def main() -> None:
     parser.add_argument("--codebase-dir", default="data/codebase", help="Codebase directory for RAG index")
     parser.add_argument("--top-k", type=int, default=5, help="Retriever top-k")
     parser.add_argument("--force-reindex", action="store_true", help="Force reindex before evaluation")
+    parser.add_argument(
+        "--agentic",
+        action="store_true",
+        help="默认对每条任务使用 run_agentic（单条任务可用 JSON 字段 agentic: true/false 覆盖）",
+    )
+    parser.add_argument(
+        "--max-turns",
+        type=int,
+        default=8,
+        help="agentic 模式下每任务 max_turns（默认 8）",
+    )
     args = parser.parse_args()
 
     tasks_path = Path(args.tasks)
@@ -63,33 +122,35 @@ def main() -> None:
         force_reindex=args.force_reindex,
     )
 
+    max_turns = max(1, int(args.max_turns))
     run_results: list[dict[str, Any]] = []
     for task in tasks:
-        task_id = str(task.get("id", ""))
-        category = str(task.get("category", "unknown"))
-        query = str(task.get("query", ""))
-        expected_keywords = task.get("expected_keywords", [])
-        if not isinstance(expected_keywords, list):
-            expected_keywords = []
-        started = time.perf_counter()
-        turn = agent.run(query)
-        duration_ms = int((time.perf_counter() - started) * 1000)
-        ok = task_success(turn.answer, [str(x) for x in expected_keywords])
-        run_results.append(
-            {
-                "id": task_id,
-                "category": category,
-                "success": ok,
-                "duration_ms": duration_ms,
-                "recovery_applied": bool(turn.recovery_applied),
-            }
+        row = run_one_eval_task(
+            agent,
+            task,
+            cli_agentic=bool(args.agentic),
+            max_turns=max_turns,
         )
-        print(f"[{task_id}] {category} success={ok} duration_ms={duration_ms} recovery={turn.recovery_applied}")
+        run_results.append(row)
+        task_id = row["id"]
+        category = row["category"]
+        ok = row["success"]
+        duration_ms = row["duration_ms"]
+        recovery = row["recovery_applied"]
+        ag = row["agentic"]
+        print(
+            f"[{task_id}] {category} success={ok} duration_ms={duration_ms} "
+            f"recovery={recovery} agentic={ag}"
+        )
 
     summary = summarize(run_results)
     payload = {
         "tasks_path": str(tasks_path),
         "codebase_dir": str(codebase_dir),
+        "eval_options": {
+            "cli_agentic": bool(args.agentic),
+            "max_turns": max_turns,
+        },
         "summary": summary,
         "results": run_results,
     }

@@ -24,15 +24,17 @@ class ConversationMemory:
         *,
         recovery_applied: bool = False,
         trace_id: str = "",
+        extra: dict[str, Any] | None = None,
     ) -> None:
-        self.turn_metadata.append(
-            {
-                "plan": plan,
-                "tool_results": tool_results,
-                "recovery_applied": recovery_applied,
-                "trace_id": trace_id,
-            }
-        )
+        row: dict[str, Any] = {
+            "plan": plan,
+            "tool_results": tool_results,
+            "recovery_applied": recovery_applied,
+            "trace_id": trace_id,
+        }
+        if extra:
+            row.update(extra)
+        self.turn_metadata.append(row)
 
     def get_messages(self) -> list[dict[str, str]]:
         return self.messages.copy()

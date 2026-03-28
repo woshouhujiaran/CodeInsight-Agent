@@ -37,11 +37,14 @@ python -m app.main --query "分析这个项目的核心模块并给优化建议"
 python -m app.main
 ```
 
+**运行模式说明**：默认使用 **Planner** 一次性生成工具计划并执行后再总结；加 **`--agentic`** 时改为 **`run_agentic`** 多轮 JSON 工具循环（可用 **`--max-turns`** 限制每轮用户输入下的大模型步数，默认 8）。
+
 ## 常用参数
 
 - `--codebase-dir` 指定入库目录（默认 `data/codebase`）
 - `--top-k` 检索返回条数（默认 5）
 - `--query` 单轮提问
+- `--agentic` / `--max-turns`：见上文「运行模式说明」
 
 ## E2E 评测基线
 
@@ -57,6 +60,7 @@ python scripts/run_eval.py --tasks eval/tasks.json --output outputs/eval_result.
 - `--codebase-dir`：评测时使用的代码库目录（默认 `data/codebase`）
 - `--top-k`：检索 top-k（默认 `5`）
 - `--force-reindex`：评测前强制重建索引
+- `--agentic` / `--max-turns`：评测走 **`run_agentic`**（默认仍为 **`agent.run`** / Planner）；单条任务可在 `eval/tasks.json` 里加 **`"agentic": true|false`** 覆盖全局 CLI
 
 评测输出：
 - 终端打印汇总指标：

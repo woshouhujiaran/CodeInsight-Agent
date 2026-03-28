@@ -75,6 +75,21 @@ def test_validate_tool_args_search() -> None:
     assert validate_tool_args("search_tool", {}) is not None
 
 
+def test_validate_plan_json_schema_write_tool_requires_flag() -> None:
+    plan = [
+        {
+            "id": "w1",
+            "deps": [],
+            "tool": "write_file_tool",
+            "args": {"path": "x.txt", "content": "hi"},
+            "success_criteria": "ok",
+        }
+    ]
+    with pytest.raises(jsonschema.ValidationError):
+        validate_plan_json_schema(plan, write_tools_enabled=False)
+    validate_plan_json_schema(plan, write_tools_enabled=True)
+
+
 def test_validate_step_graph_unknown_dep() -> None:
     steps = [
         {"id": "a", "deps": ["missing"], "tool": "search_tool", "args": {"query": "x"}, "success_criteria": "c"},
