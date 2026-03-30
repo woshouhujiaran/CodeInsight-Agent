@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CodeInsight-Agent Web</title>
+  <style>
+    :root {
+      --bg: #f4efe7;
+      --panel: rgba(255, 251, 245, 0.92);
+      --panel-strong: #fffdf9;
+      --text: #1d2a22;
+      --muted: #6a766d;
+      --line: rgba(72, 96, 80, 0.18);
+      --accent: #1f6b52;
+      --accent-soft: #ddeee8;
+      --warn: #8a4f10;
+      --shadow: 0 18px 40px rgba(53, 70, 58, 0.12);
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(circle at top left, rgba(203, 225, 210, 0.9), transparent 35%),
+        radial-gradient(circle at bottom right, rgba(236, 217, 190, 0.9), transparent 28%),
+        linear-gradient(135deg, #f4efe7, #eef5ef 55%, #f9f3ec);
+      min-height: 100vh;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr) 340px;
+      gap: 16px;
+      padding: 16px;
+      min-height: 100vh;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 22px;
+      box-shadow: var(--shadow);
+      backdrop-filter: blur(12px);
+      overflow: hidden;
+    }
+
+    .panel-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 18px 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .sidebar, .aside {
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .session-list {
+      padding: 12px;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .session-card {
+      padding: 12px;
+      border-radius: 16px;
+      border: 1px solid transparent;
+      background: rgba(255,255,255,0.5);
+      cursor: pointer;
+      transition: transform 120ms ease, border-color 120ms ease, background 120ms ease;
+    }
+
+    .session-card:hover { transform: translateY(-1px); border-color: var(--line); }
+    .session-card.active { background: var(--accent-soft); border-color: rgba(31, 107, 82, 0.35); }
+    .session-title { font-weight: 700; margin-bottom: 6px; }
+    .session-meta { color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+    .main {
+      display: grid;
+      grid-template-rows: auto 1fr auto;
+      min-height: 0;
+    }
+
+    .chat-meta {
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--line);
+      background: rgba(255,255,255,0.4);
+      font-size: 13px;
+      color: var(--muted);
+    }
+
+    .messages {
+      padding: 18px;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .message {
+      max-width: 88%;
+      padding: 14px 16px;
+      border-radius: 18px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      background: var(--panel-strong);
+      border: 1px solid var(--line);
+    }
+
+    .message.user {
+      margin-left: auto;
+      background: linear-gradient(135deg, #1f6b52, #2c7f62);
+      color: white;
+      border-color: transparent;
+    }
+
+    .message.assistant {
+      margin-right: auto;
+    }
+
+    .message.loading {
+      position: relative;
+      overflow: hidden;
+    }
+
+    .message.loading::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.5), transparent);
+      animation: shimmer 1.4s infinite;
+    }
+
+    @keyframes shimmer {
+      from { transform: translateX(-100%); }
+      to { transform: translateX(100%); }
+    }
+
+    .composer {
+      padding: 16px 18px 18px;
+      border-top: 1px solid var(--line);
+      background: rgba(255,255,255,0.5);
+    }
+
+    textarea, input[type="text"], input[type="number"] {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 12px 14px;
+      font: inherit;
+      background: rgba(255,255,255,0.88);
+      color: var(--text);
+    }
+
+    textarea { min-height: 108px; resize: vertical; }
+
+    .row {
+      display: flex;
+      gap: 10px;
+      align-items: center;
+    }
+
+    .row > * { flex: 1; }
+
+    button {
+      border: none;
+      border-radius: 14px;
+      background: var(--accent);
+      color: white;
+      padding: 11px 14px;
+      font: inherit;
+      font-weight: 700;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: rgba(255,255,255,0.78);
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+
+    button.warn {
+      background: #8a4f10;
+    }
+
+    .aside-scroll {
+      padding: 14px;
+      overflow: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      min-height: 0;
+    }
+
+    .card {
+      background: rgba(255,255,255,0.62);
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      padding: 14px;
+    }
+
+    .card h3 {
+      margin: 0 0 10px;
+      font-size: 14px;
+    }
+
+    .task-item {
+      padding: 10px 0;
+      border-top: 1px dashed var(--line);
+    }
+
+    .task-item:first-child { border-top: none; padding-top: 0; }
+    .task-title { font-weight: 700; }
+    .task-status { font-size: 12px; color: var(--muted); margin-top: 4px; }
+    .task-summary, .mono {
+      font-size: 13px;
+      color: var(--muted);
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .empty {
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .toggle {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 10px;
+      margin: 10px 0;
+      font-size: 13px;
+    }
+
+    .status-bar {
+      padding: 0 18px 10px;
+      color: var(--warn);
+      font-size: 13px;
+      min-height: 18px;
+    }
+
+    @media (max-width: 1180px) {
+      .layout {
+        grid-template-columns: 1fr;
+      }
+      .sidebar, .aside, .main {
+        min-height: 360px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <section class="panel sidebar">
+      <div class="panel-header">
+        <div class="panel-title">会话列表</div>
+        <button id="newSessionBtn" class="secondary">新建会话</button>
+      </div>
+      <div id="sessionList" class="session-list"></div>
+    </section>
+
+    <section class="panel main">
+      <div id="chatMeta" class="chat-meta">尚未选择会话</div>
+      <div id="messages" class="messages"></div>
+      <div class="composer">
+        <textarea id="messageInput" placeholder="输入你的目标，例如：给这个项目加一个健康检查接口。"></textarea>
+        <div class="row" style="margin-top: 10px;">
+          <button id="sendBtn">发送</button>
+          <button id="stopBtn" class="warn">停止流式</button>
+        </div>
+        <div id="statusBar" class="status-bar"></div>
+      </div>
+    </section>
+
+    <aside class="panel aside">
+      <div class="panel-header">
+        <div class="panel-title">控制台</div>
+        <button id="saveSettingsBtn" class="secondary">保存设置</button>
+      </div>
+      <div class="aside-scroll">
+        <div class="card">
+          <h3>环境开关</h3>
+          <div class="mono" style="margin-bottom: 8px;">工作区根目录</div>
+          <input id="workspaceInput" type="text" value="." />
+          <div class="toggle">
+            <span>允许写盘</span>
+            <input id="allowWriteInput" type="checkbox" />
+          </div>
+          <div class="toggle">
+            <span>允许命令执行</span>
+            <input id="allowShellInput" type="checkbox" />
+          </div>
+          <div class="toggle">
+            <span>自动跑测试</span>
+            <input id="autoRunTestsInput" type="checkbox" />
+          </div>
+          <div class="mono" style="margin: 12px 0 8px;">测试命令</div>
+          <input id="testCommandInput" type="text" placeholder="例如：python -m pytest -q" />
+          <div class="mono" style="margin: 12px 0 8px;">最大工具轮次</div>
+          <input id="maxTurnsInput" type="number" min="1" value="8" />
+          <div class="mono" style="margin-top: 12px;">风险提示：开启写盘或命令执行后，Agent 会在工作区内修改文件或运行命令。</div>
+        </div>
+
+        <div class="card">
+          <div class="row" style="margin-bottom: 10px;">
+            <h3 style="margin: 0;">任务看板</h3>
+          </div>
+          <div id="taskBoard" class="empty">暂无任务</div>
+        </div>
+
+        <div class="card">
+          <div class="row" style="margin-bottom: 10px;">
+            <h3 style="margin: 0;">最近一次测试</h3>
+            <button id="runTestsBtn" class="secondary">运行测试</button>
+          </div>
+          <div id="testSummary" class="empty">尚未运行测试</div>
+        </div>
+
+        <div class="card">
+          <h3>最近评测</h3>
+          <div id="evalSummary" class="empty">尚无评测结果</div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    const state = {
+      sessions: [],
+      currentSession: null,
+      streamController: null,
+      pendingAssistantEl: null,
+      pendingAssistantText: "",
+    };
+
+    const sessionListEl = document.getElementById("sessionList");
+    const messagesEl = document.getElementById("messages");
+    const taskBoardEl = document.getElementById("taskBoard");
+    const testSummaryEl = document.getElementById("testSummary");
+    const evalSummaryEl = document.getElementById("evalSummary");
+    const chatMetaEl = document.getElementById("chatMeta");
+    const statusBarEl = document.getElementById("statusBar");
+
+    function setStatus(text) {
+      statusBarEl.textContent = text || "";
+    }
+
+    function escapeHtml(text) {
+      return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function sessionSettings() {
+      return {
+        allow_write: document.getElementById("allowWriteInput").checked,
+        allow_shell: document.getElementById("allowShellInput").checked,
+        auto_run_tests: document.getElementById("autoRunTestsInput").checked,
+        test_command: document.getElementById("testCommandInput").value.trim(),
+        max_turns: Number(document.getElementById("maxTurnsInput").value || 8),
+      };
+    }
+
+    function applySessionToControls(session) {
+      const settings = session?.settings || {};
+      document.getElementById("workspaceInput").value = session?.workspace_root || ".";
+      document.getElementById("allowWriteInput").checked = !!settings.allow_write;
+      document.getElementById("allowShellInput").checked = !!settings.allow_shell;
+      document.getElementById("autoRunTestsInput").checked = !!settings.auto_run_tests;
+      document.getElementById("testCommandInput").value = settings.test_command || "";
+      document.getElementById("maxTurnsInput").value = settings.max_turns || 8;
+    }
+
+    function renderSessions() {
+      if (!state.sessions.length) {
+        sessionListEl.innerHTML = '<div class="empty">暂无会话。先在右侧填好工作区，再创建会话。</div>';
+        return;
+      }
+      sessionListEl.innerHTML = state.sessions.map((session) => {
+        const active = state.currentSession?.session_id === session.session_id ? "active" : "";
+        return `
+          <div class="session-card ${active}" data-session-id="${session.session_id}">
+            <div class="session-title">${escapeHtml(session.title)}</div>
+            <div class="session-meta">${escapeHtml(session.updated_at)}</div>
+            <div class="session-meta">${escapeHtml(session.workspace_root)}</div>
+          </div>
+        `;
+      }).join("");
+      sessionListEl.querySelectorAll(".session-card").forEach((el) => {
+        el.addEventListener("click", () => loadSession(el.dataset.sessionId));
+      });
+    }
+
+    function renderMessages(session) {
+      const messages = session?.messages || [];
+      if (!messages.length) {
+        messagesEl.innerHTML = '<div class="empty">开始一轮多步对话后，消息会出现在这里。</div>';
+        return;
+      }
+      messagesEl.innerHTML = messages.map((message) => `
+        <div class="message ${message.role === "user" ? "user" : "assistant"}">${escapeHtml(message.content)}</div>
+      `).join("");
+      if (state.pendingAssistantEl) {
+        messagesEl.appendChild(state.pendingAssistantEl);
+      }
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function renderTasks(tasks) {
+      if (!tasks || !tasks.length) {
+        taskBoardEl.innerHTML = '<div class="empty">暂无任务</div>';
+        return;
+      }
+      taskBoardEl.innerHTML = tasks.map((task) => `
+        <div class="task-item">
+          <div class="task-title">${escapeHtml(task.title)}</div>
+          <div class="task-status">状态：${escapeHtml(task.status)} | 依赖：${escapeHtml((task.depends_on || []).join(", ") || "无")}</div>
+          <div class="task-summary">${escapeHtml(task.summary || task.description)}</div>
+        </div>
+      `).join("");
+    }
+
+    function renderTestSummary(summary) {
+      if (!summary) {
+        testSummaryEl.innerHTML = '<div class="empty">尚未运行测试</div>';
+        return;
+      }
+      testSummaryEl.innerHTML = `
+        <div class="task-title">${summary.passed ? "通过" : "失败"}</div>
+        <div class="task-status">耗时：${summary.duration_ms} ms</div>
+        <div class="task-status">命令：${escapeHtml(summary.command || "")}</div>
+        <div class="task-summary">${escapeHtml(summary.raw_tail || "")}</div>
+      `;
+    }
+
+    function renderEval(payload) {
+      if (!payload || !payload.payload) {
+        evalSummaryEl.innerHTML = '<div class="empty">尚无评测结果</div>';
+        return;
+      }
+      const summary = payload.payload.summary || {};
+      evalSummaryEl.innerHTML = `
+        <div class="task-title">${escapeHtml(payload.path || "")}</div>
+        <div class="task-status">success_rate: ${escapeHtml(summary.success_rate ?? "n/a")}</div>
+        <div class="task-status">avg_duration_ms: ${escapeHtml(summary.avg_duration_ms ?? "n/a")}</div>
+        <div class="task-status">recovery_trigger_rate: ${escapeHtml(summary.recovery_trigger_rate ?? "n/a")}</div>
+      `;
+    }
+
+    function updateMeta() {
+      if (!state.currentSession) {
+        chatMetaEl.textContent = "尚未选择会话";
+        return;
+      }
+      chatMetaEl.textContent = `${state.currentSession.title} | ${state.currentSession.workspace_root}`;
+    }
+
+    async function fetchJson(url, options = {}) {
+      const response = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options,
+      });
+      if (!response.ok) {
+        const body = await response.json().catch(() => ({}));
+        throw new Error(body.detail || `请求失败: ${response.status}`);
+      }
+      return response.json();
+    }
+
+    async function refreshSessions() {
+      state.sessions = await fetchJson("/sessions");
+      renderSessions();
+    }
+
+    async function loadSession(sessionId) {
+      state.currentSession = await fetchJson(`/sessions/${sessionId}`);
+      applySessionToControls(state.currentSession);
+      renderMessages(state.currentSession);
+      renderTasks(state.currentSession.tasks);
+      renderTestSummary(state.currentSession.last_test_summary);
+      updateMeta();
+      renderSessions();
+    }
+
+    async function createSession() {
+      const payload = {
+        workspace_root: document.getElementById("workspaceInput").value.trim() || ".",
+        settings: sessionSettings(),
+      };
+      const session = await fetchJson("/sessions", {
+        method: "POST",
+        body: JSON.stringify(payload),
+      });
+      await refreshSessions();
+      await loadSession(session.session_id);
+      setStatus("已创建新会话。");
+    }
+
+    async function saveSettings() {
+      if (!state.currentSession) {
+        setStatus("请先创建或选择会话。");
+        return;
+      }
+      const payload = {
+        workspace_root: document.getElementById("workspaceInput").value.trim(),
+        settings: sessionSettings(),
+      };
+      state.currentSession = await fetchJson(`/sessions/${state.currentSession.session_id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      await refreshSessions();
+      renderSessions();
+      updateMeta();
+      setStatus("设置已保存。");
+    }
+
+    function appendPendingAssistant() {
+      state.pendingAssistantText = "";
+      state.pendingAssistantEl = document.createElement("div");
+      state.pendingAssistantEl.className = "message assistant loading";
+      state.pendingAssistantEl.textContent = "处理中...";
+      messagesEl.appendChild(state.pendingAssistantEl);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function clearPendingAssistant() {
+      state.pendingAssistantText = "";
+      if (state.pendingAssistantEl) {
+        state.pendingAssistantEl.remove();
+      }
+      state.pendingAssistantEl = null;
+    }
+
+    function handleStreamEvent(eventName, data) {
+      if (eventName === "session") {
+        state.currentSession = data;
+        renderMessages(state.currentSession);
+        renderTasks(state.currentSession.tasks);
+        renderTestSummary(state.currentSession.last_test_summary);
+        updateMeta();
+        refreshSessions().catch((err) => setStatus(err.message));
+        return;
+      }
+      if (eventName === "task_board") {
+        renderTasks(data);
+        return;
+      }
+      if (eventName === "task_update") {
+        if (!state.currentSession) return;
+        const tasks = state.currentSession.tasks || [];
+        const taskId = data.task_id || data.id;
+        const next = tasks.map((task) => (task.id === taskId ? { ...task, ...data, id: task.id } : task));
+        const exists = next.some((task) => task.id === taskId);
+        state.currentSession.tasks = exists ? next : [...next, data];
+        renderTasks(state.currentSession.tasks);
+        return;
+      }
+      if (eventName === "assistant_delta") {
+        state.pendingAssistantText += data.content || "";
+        if (state.pendingAssistantEl) {
+          state.pendingAssistantEl.classList.remove("loading");
+          state.pendingAssistantEl.textContent = state.pendingAssistantText;
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+        return;
+      }
+      if (eventName === "assistant_final") {
+        if (state.pendingAssistantEl) {
+          state.pendingAssistantEl.classList.remove("loading");
+          state.pendingAssistantEl.textContent = data.content || state.pendingAssistantText;
+        }
+        return;
+      }
+      if (eventName === "test_summary") {
+        renderTestSummary(data);
+        return;
+      }
+      if (eventName === "error") {
+        setStatus(data.message || "流式执行失败。");
+      }
+    }
+
+    async function sendMessage() {
+      if (!state.currentSession) {
+        setStatus("请先创建或选择会话。");
+        return;
+      }
+      const input = document.getElementById("messageInput");
+      const content = input.value.trim();
+      if (!content) {
+        setStatus("请输入消息。");
+        return;
+      }
+      input.value = "";
+      setStatus("进行中...");
+      state.currentSession.messages = [...(state.currentSession.messages || []), { role: "user", content }];
+      renderMessages(state.currentSession);
+      appendPendingAssistant();
+
+      state.streamController = new AbortController();
+      try {
+        const response = await fetch(`/sessions/${state.currentSession.session_id}/messages?stream=1`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+          signal: state.streamController.signal,
+        });
+        if (!response.ok || !response.body) {
+          throw new Error(`请求失败: ${response.status}`);
+        }
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop() || "";
+          for (const part of parts) {
+            const lines = part.split("\n");
+            let eventName = "message";
+            let data = "";
+            for (const line of lines) {
+              if (line.startsWith("event:")) eventName = line.slice(6).trim();
+              if (line.startsWith("data:")) data += line.slice(5).trim();
+            }
+            if (data) {
+              handleStreamEvent(eventName, JSON.parse(data));
+            }
+          }
+        }
+        setStatus("已完成。");
+      } catch (error) {
+        if (error.name === "AbortError") {
+          setStatus("已停止本地流式读取，服务端任务可能仍在继续。");
+        } else {
+          setStatus(error.message || "发送失败。");
+        }
+      } finally {
+        clearPendingAssistant();
+        if (state.currentSession) {
+          renderMessages(state.currentSession);
+        }
+        state.streamController = null;
+      }
+    }
+
+    async function runTests() {
+      if (!state.currentSession) {
+        setStatus("请先选择会话。");
+        return;
+      }
+      setStatus("正在运行测试...");
+      try {
+        const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/tests/run`, { method: "POST" });
+        state.currentSession = payload.session;
+        renderTestSummary(payload.summary);
+        renderMessages(state.currentSession);
+        renderTasks(state.currentSession.tasks);
+        updateMeta();
+        setStatus("测试执行完成。");
+      } catch (error) {
+        setStatus(error.message || "测试执行失败。");
+      }
+    }
+
+    document.getElementById("newSessionBtn").addEventListener("click", () => createSession().catch((err) => setStatus(err.message)));
+    document.getElementById("saveSettingsBtn").addEventListener("click", () => saveSettings().catch((err) => setStatus(err.message)));
+    document.getElementById("sendBtn").addEventListener("click", () => sendMessage());
+    document.getElementById("runTestsBtn").addEventListener("click", () => runTests());
+    document.getElementById("stopBtn").addEventListener("click", () => {
+      if (state.streamController) state.streamController.abort();
+    });
+
+    Promise.all([
+      refreshSessions(),
+      fetchJson("/eval/latest").then(renderEval),
+    ]).then(async () => {
+      if (state.sessions.length) {
+        await loadSession(state.sessions[0].session_id);
+      } else {
+        updateMeta();
+      }
+    }).catch((err) => setStatus(err.message));
+  </script>
+</body>
+</html>

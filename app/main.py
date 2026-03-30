@@ -9,6 +9,7 @@ import sys
 
 from app.agent.agent import CodeAgent
 from app.agent.executor import Executor
+from app.agent.memory import ConversationMemory
 from app.agent.planner import Planner
 from app.agent.tool_registry import ToolRegistry
 from app.llm.llm import LLMClient
@@ -80,12 +81,15 @@ def default_index_dir(codebase_dir: str) -> Path:
     return Path("data/index") / h
 
 
-def build_agent(
-    codebase_dir: str,
-    top_k: int = 5,
+def create_agent_from_env(
+    workspace_root: str,
     *,
-    index_dir: Path | None = None,
+    memory: ConversationMemory | None = None,
+    top_k: int = 5,
     force_reindex: bool = False,
+    allow_write: bool = False,
+    allow_shell: bool = False,
+    index_dir: Path | None = None,
 ) -> CodeAgent:
     logger = get_logger("codeinsight.main")
     llm_provider = os.getenv("LLM_PROVIDER", "deepseek")
@@ -93,43 +97,60 @@ def build_agent(
     llm = LLMClient(model=llm_model, provider=llm_provider)
 
     embedding = create_embedding_backend()
-    idx_path = index_dir or default_index_dir(codebase_dir)
+    idx_path = index_dir or default_index_dir(workspace_root)
     store, rag_meta = load_or_build_vector_store(
-        codebase_dir,
+        workspace_root,
         idx_path,
         embedding,
         force_reindex=force_reindex,
     )
     logger.info("RAG: %s", rag_meta)
 
-    workspace_root = Path(codebase_dir).resolve()
+    resolved_root = Path(workspace_root).resolve()
     retriever = CodeRetriever(store=store)
     registry = ToolRegistry()
     registry.register(SearchTool(retriever=retriever, top_k=top_k))
     registry.register(AnalyzeTool(llm=llm))
     registry.register(OptimizeTool(llm=llm))
     registry.register(TestTool(llm=llm))
-    registry.register(ReadFileTool(workspace_root=workspace_root))
-    registry.register(ListDirTool(workspace_root=workspace_root))
-    registry.register(GrepTool(workspace_root=workspace_root))
+    registry.register(ReadFileTool(workspace_root=resolved_root))
+    registry.register(ListDirTool(workspace_root=resolved_root))
+    registry.register(GrepTool(workspace_root=resolved_root))
 
-    write_on = agent_write_tools_enabled()
-    if write_on:
-        registry.register(ApplyPatchTool(workspace_root=workspace_root))
-        registry.register(WriteFileTool(workspace_root=workspace_root))
-        logger.info("AGENT_ALLOW_WRITE=1: apply_patch_tool / write_file_tool 已注册。")
+    if allow_write:
+        registry.register(ApplyPatchTool(workspace_root=resolved_root))
+        registry.register(WriteFileTool(workspace_root=resolved_root))
+        logger.info("allow_write=True: apply_patch_tool / write_file_tool 已注册。")
 
-    if agent_shell_enabled():
-        registry.register(RunCommandTool(workspace_root=workspace_root))
-        logger.info("AGENT_ALLOW_SHELL=1: run_command_tool 已注册。")
+    if allow_shell:
+        registry.register(RunCommandTool(workspace_root=resolved_root))
+        logger.info("allow_shell=True: run_command_tool 已注册。")
 
-    planner = Planner(llm=llm, write_tools_enabled=write_on)
+    planner = Planner(llm=llm, write_tools_enabled=allow_write)
     executor = Executor(registry=registry)
     return CodeAgent(
         planner=planner,
         executor=executor,
         llm=llm,
-        workspace_root=str(workspace_root),
+        memory=memory,
+        workspace_root=str(resolved_root),
+    )
+
+
+def build_agent(
+    codebase_dir: str,
+    top_k: int = 5,
+    *,
+    index_dir: Path | None = None,
+    force_reindex: bool = False,
+) -> CodeAgent:
+    return create_agent_from_env(
+        codebase_dir,
+        top_k=top_k,
+        force_reindex=force_reindex,
+        allow_write=agent_write_tools_enabled(),
+        allow_shell=agent_shell_enabled(),
+        index_dir=index_dir,
     )
 
 

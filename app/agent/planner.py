@@ -10,12 +10,15 @@ from app.agent.plan_schema import (
     validate_step_graph,
     validate_tool_args,
 )
+from app.agent.task_board import TaskBoard
 from app.llm.llm import LLMClient
 from app.llm.prompt import (
     build_planner_system_prompt,
     build_planner_user_prompt,
     build_recovery_planner_system_prompt,
     build_recovery_planner_user_prompt,
+    build_task_board_system_prompt,
+    build_task_board_user_prompt,
 )
 from app.utils.logger import get_logger
 
@@ -45,6 +48,16 @@ class Planner:
         self.logger.debug("Raw planner output: %s", raw)
 
         return self._parse_and_validate_plan(raw=raw, user_query=user_query, recovery=False)
+
+    def make_task_board(self, user_query: str, history: list[dict[str, str]]) -> list[dict[str, Any]]:
+        history_text = self._history_to_text(history)
+        user_prompt = build_task_board_user_prompt(user_query=user_query, history_text=history_text)
+        raw = self.llm.generate_text(
+            prompt=user_prompt,
+            system_prompt=build_task_board_system_prompt(),
+        )
+        self.logger.debug("Raw task board output: %s", raw)
+        return self._parse_and_validate_task_board(raw=raw)
 
     def make_recovery_plan(
         self,
@@ -143,6 +156,24 @@ class Planner:
             self.last_plan_score = fallback_score
         return plan
 
+    def _parse_and_validate_task_board(self, raw: str) -> list[dict[str, Any]]:
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            self.logger.warning("Task board returned invalid JSON. Fallback applied.")
+            return self._fallback_task_board()
+
+        if not isinstance(data, list) or not data:
+            self.logger.warning("Task board returned empty/non-list payload. Fallback applied.")
+            return self._fallback_task_board()
+
+        try:
+            board = TaskBoard.from_dicts(data)
+        except Exception as exc:  # noqa: BLE001
+            self.logger.warning("Task board validation failed: %s", exc)
+            return self._fallback_task_board()
+        return board.to_dicts()
+
     def _try_validate_structured_plan(self, data: list[Any]) -> list[dict[str, Any]] | None:
         if not isinstance(data, list) or not data:
             return None
@@ -239,6 +270,44 @@ class Planner:
                 "max_retries": 0,
             },
         ]
+
+    def _fallback_task_board(self) -> list[dict[str, Any]]:
+        return TaskBoard.from_dicts(
+            [
+                {
+                    "id": "t1",
+                    "title": "定位相关代码",
+                    "description": "检索与用户目标最相关的模块、入口和文件。",
+                    "depends_on": [],
+                    "status": "pending",
+                    "acceptance": "能指出需要阅读或修改的关键文件。",
+                },
+                {
+                    "id": "t2",
+                    "title": "分析实现方案",
+                    "description": "确认改动边界、依赖关系和潜在风险。",
+                    "depends_on": ["t1"],
+                    "status": "pending",
+                    "acceptance": "形成可执行的实现路径或手动修改方案。",
+                },
+                {
+                    "id": "t3",
+                    "title": "执行修改或生成补丁",
+                    "description": "在权限允许时修改代码，否则输出结构化 diff 建议。",
+                    "depends_on": ["t2"],
+                    "status": "pending",
+                    "acceptance": "代码已修改，或给出可复制补丁与编辑步骤。",
+                },
+                {
+                    "id": "t4",
+                    "title": "验证与总结",
+                    "description": "检查结果并总结验证状态、风险和下一步。",
+                    "depends_on": ["t3"],
+                    "status": "pending",
+                    "acceptance": "产出清晰的验证结论与剩余事项。",
+                },
+            ]
+        ).to_dicts()
 
     def _score_plan_semantics(self, *, plan: list[dict[str, Any]], user_query: str) -> dict[str, Any]:
         tools = [str(step.get("tool", "")) for step in plan]

@@ -1,0 +1,83 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+import shlex
+import time
+from typing import Any
+
+from app.sandbox.runner import run_workspace_command
+from app.utils.logger import get_logger
+
+
+def split_command(command: str) -> list[str]:
+    text = str(command or "").strip()
+    if not text:
+        raise ValueError("test_command 不能为空")
+    parts = shlex.split(text, posix=(os.name != "nt"))
+    normalized: list[str] = []
+    for part in parts:
+        item = str(part)
+        if len(item) >= 2 and item[0] == item[-1] and item[0] in {"'", '"'}:
+            item = item[1:-1]
+        normalized.append(item)
+    return normalized
+
+
+def build_test_summary(
+    *,
+    command: str,
+    returncode: int,
+    stdout: str,
+    stderr: str,
+    duration_ms: int,
+    timed_out: bool,
+) -> dict[str, Any]:
+    combined = ((stdout or "") + "\n" + (stderr or "")).strip()
+    raw_tail = combined[-4000:] if combined else ""
+    if timed_out and raw_tail:
+        raw_tail = raw_tail + "\n[timeout]"
+    elif timed_out:
+        raw_tail = "[timeout]"
+    passed = (returncode == 0) and not timed_out
+    return {
+        "passed": passed,
+        "failed": not passed,
+        "duration_ms": duration_ms,
+        "command": command,
+        "raw_tail": raw_tail,
+        "returncode": returncode,
+        "timed_out": timed_out,
+    }
+
+
+def run_project_test_command(
+    *,
+    workspace_root: str,
+    command: str,
+    allow_shell: bool,
+    timeout_seconds: float = 600.0,
+    max_output_chars: int = 12000,
+) -> dict[str, Any]:
+    if not allow_shell:
+        raise PermissionError("未开启命令执行权限，无法运行测试命令。")
+
+    argv = split_command(command)
+    started = time.perf_counter()
+    logger = get_logger("codeinsight.web.test_runner")
+    result = run_workspace_command(
+        argv,
+        cwd=Path(workspace_root).resolve(),
+        timeout_seconds=timeout_seconds,
+        max_output_chars=max_output_chars,
+        logger=logger,
+    )
+    duration_ms = int((time.perf_counter() - started) * 1000)
+    return build_test_summary(
+        command=" ".join(argv),
+        returncode=int(result.get("returncode", -1)),
+        stdout=str(result.get("stdout") or ""),
+        stderr=str(result.get("stderr") or ""),
+        duration_ms=duration_ms,
+        timed_out=bool(result.get("timed_out")),
+    )

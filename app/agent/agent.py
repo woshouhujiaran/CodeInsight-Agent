@@ -184,6 +184,7 @@ class CodeAgent:
         *,
         max_turns: int = 8,
         workspace_root: str | None = None,
+        persist_memory: bool = True,
     ) -> AgenticTurnResult:
         """
         Multi-turn tool loop: each LLM step returns JSON either final answer or tool_calls.
@@ -205,10 +206,26 @@ class CodeAgent:
         )
 
         tool_specs_json = compact_tool_specs_for_prompt(self.executor.registry.list_specs())
+        write_tools_available = any(
+            self.executor.registry.get_tool(name) is not None
+            for name in ("apply_patch_tool", "write_file_tool")
+        )
+        shell_tool_available = self.executor.registry.get_tool("run_command_tool") is not None
+        extra_rules: list[str] = []
+        if not write_tools_available:
+            extra_rules.append(
+                "当前未开放写文件工具。若用户要求修改代码，最终回答必须给出可复制的 unified diff 或分步编辑说明，不得声称已写入磁盘。"
+            )
+        if not shell_tool_available:
+            extra_rules.append(
+                "当前未开放 shell/命令执行工具。不得声称已经运行测试、构建或其他命令；只能基于现有上下文给出建议。"
+            )
+        extra_rules_text = "\n".join(extra_rules)
         system_prompt = (
             f"工作区根目录（说明用途；调用工具时路径需与此一致）: {root}\n"
             "安全：不要执行任意 shell、不要访问工作区外路径；只使用下列工具。\n\n"
             + AGENTIC_TOOL_USE_POLICY
+            + (f"{extra_rules_text}\n\n" if extra_rules_text else "")
             + f"可用工具（JSON 数组，每项含 name、description、parameters JSON Schema；调用时 arguments 必须满足 parameters）：\n"
             f"{tool_specs_json}\n\n"
             + AGENTIC_JSON_SYSTEM_SUFFIX
@@ -255,15 +272,16 @@ class CodeAgent:
         else:
             answer = answer or "已达到最大对话轮次仍未给出最终回答（type=final）。"
 
-        self.memory.add_user_message(user_query)
-        self.memory.add_assistant_message(answer)
-        self.memory.add_turn_metadata(
-            plan=[],
-            tool_results=tool_trace,
-            recovery_applied=False,
-            trace_id=trace_id,
-            extra={"agentic": True},
-        )
+        if persist_memory:
+            self.memory.add_user_message(user_query)
+            self.memory.add_assistant_message(answer)
+            self.memory.add_turn_metadata(
+                plan=[],
+                tool_results=tool_trace,
+                recovery_applied=False,
+                trace_id=trace_id,
+                extra={"agentic": True},
+            )
 
         turn_duration_ms = int((time.perf_counter() - turn_started) * 1000)
         self._record_turn_metrics(tool_results=tool_trace, duration_ms=turn_duration_ms)

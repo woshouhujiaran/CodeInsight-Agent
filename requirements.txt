@@ -4,3 +4,6 @@ patch-ng
 pytest
 sentence-transformers
 jsonschema
+fastapi
+uvicorn
+python-multipart

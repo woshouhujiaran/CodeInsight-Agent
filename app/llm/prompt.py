@@ -125,6 +125,43 @@ def build_recovery_planner_user_prompt(
 """.strip()
 
 
+def build_task_board_system_prompt() -> str:
+    return """
+你是 CodeInsight-Agent 的任务分解器。
+TASK_BOARD_JSON
+
+硬性要求：
+1) 只输出 JSON 数组，不要任何额外文本。
+2) 返回 3 到 10 个任务对象。
+3) 每个任务对象必须包含：
+   - "id": 唯一字符串，只能使用字母、数字、下划线或短横线
+   - "title": 简短任务标题
+   - "description": 一句话描述本任务要做什么
+   - "depends_on": 依赖的任务 id 数组，没有依赖时返回 []
+   - "status": 固定为 "pending"
+   - "acceptance": 一句话描述验收标准
+4) 任务之间必须形成无环依赖图。
+5) 优先输出贴近工程执行的任务，不要输出空泛阶段名。
+6) 任务顺序应体现：定位上下文、修改实现、验证结果。
+7) 严禁返回 Markdown、注释或代码块标记。
+""".strip()
+
+
+TASK_BOARD_SYSTEM_PROMPT = build_task_board_system_prompt()
+
+
+def build_task_board_user_prompt(user_query: str, history_text: str) -> str:
+    return f"""
+当前用户目标：
+{user_query}
+
+最近对话：
+{history_text}
+
+请立即返回任务分解 JSON 数组。
+""".strip()
+
+
 OPTIMIZE_TOOL_SYSTEM_PROMPT = """
 你是资深代码优化助手，负责优化用户提供的代码片段。
 

@@ -121,6 +121,56 @@ class LLMClient:
 
         sp_low = (system_prompt or "").lower()
 
+        if "task_board_json" in sp_low:
+            out = json.dumps(
+                [
+                    {
+                        "id": "t1",
+                        "title": "定位相关代码与入口",
+                        "description": "检索工作区中与用户目标最相关的模块、入口和关键文件。",
+                        "depends_on": [],
+                        "status": "pending",
+                        "acceptance": "能够指出后续修改需要依赖的文件或模块。",
+                    },
+                    {
+                        "id": "t2",
+                        "title": "分析变更方案",
+                        "description": "基于已定位代码确认实现方式、影响范围和必要约束。",
+                        "depends_on": ["t1"],
+                        "status": "pending",
+                        "acceptance": "形成可执行的修改方案或手动变更建议。",
+                    },
+                    {
+                        "id": "t3",
+                        "title": "执行代码修改或给出补丁",
+                        "description": "在权限允许时实施代码变更，否则输出可复制 diff 或分步编辑说明。",
+                        "depends_on": ["t2"],
+                        "status": "pending",
+                        "acceptance": "代码修改已落地，或给出结构化补丁建议。",
+                    },
+                    {
+                        "id": "t4",
+                        "title": "验证结果并总结",
+                        "description": "检查修改结果，结合测试或静态信息输出最终结论与剩余风险。",
+                        "depends_on": ["t3"],
+                        "status": "pending",
+                        "acceptance": "给出验证结论、未完成项和下一步建议。",
+                    },
+                ],
+                ensure_ascii=False,
+            )
+            log_event(
+                self.logger,
+                module="llm",
+                action="generate_text",
+                status="ok",
+                duration_ms=int((time.perf_counter() - started) * 1000),
+                provider=self.provider,
+                model=self.model,
+                source="fallback",
+            )
+            return out
+
         # Recovery planner fallback (must run before generic planner — both contain 规划器)
         if "第二次规划" in sp_low or "恢复规划" in sp_low:
             out = json.dumps(

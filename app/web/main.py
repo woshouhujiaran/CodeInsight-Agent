@@ -1,0 +1,126 @@
+from __future__ import annotations
+
+from pathlib import Path
+import json
+import os
+from typing import Any
+
+from fastapi import FastAPI, HTTPException, Query
+from fastapi.responses import HTMLResponse, StreamingResponse
+import uvicorn
+
+from app.web.schemas import (
+    ChatResponseModel,
+    EvalLatestResponseModel,
+    MessageCreateModel,
+    SessionCreateModel,
+    SessionSnapshotModel,
+    SessionSummaryModel,
+    SessionUpdateModel,
+)
+from app.web.service import WebAgentService
+
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+
+
+def _dump_model(model: Any) -> dict[str, Any]:
+    if hasattr(model, "model_dump"):
+        return model.model_dump()
+    return model.dict()
+
+
+def _sse_message(event: str, data: Any) -> str:
+    return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def create_app(service: WebAgentService | None = None) -> FastAPI:
+    app = FastAPI(title="CodeInsight-Agent Web", version="1.0.0")
+    app.state.service = service or WebAgentService()
+
+    @app.get("/", response_class=HTMLResponse)
+    def index() -> HTMLResponse:
+        template_path = TEMPLATES_DIR / "index.html"
+        return HTMLResponse(template_path.read_text(encoding="utf-8"))
+
+    @app.get("/sessions", response_model=list[SessionSummaryModel])
+    def list_sessions() -> list[dict[str, Any]]:
+        return app.state.service.list_sessions()
+
+    @app.post("/sessions", response_model=SessionSnapshotModel)
+    def create_session(payload: SessionCreateModel) -> dict[str, Any]:
+        try:
+            return app.state.service.create_session(
+                workspace_root=payload.workspace_root,
+                settings=_dump_model(payload.settings),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/sessions/{session_id}", response_model=SessionSnapshotModel)
+    def get_session(session_id: str) -> dict[str, Any]:
+        try:
+            return app.state.service.get_session(session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="会话不存在。") from exc
+
+    @app.patch("/sessions/{session_id}", response_model=SessionSnapshotModel)
+    def update_session(session_id: str, payload: SessionUpdateModel) -> dict[str, Any]:
+        try:
+            settings = _dump_model(payload.settings) if payload.settings is not None else None
+            return app.state.service.update_session(
+                session_id,
+                workspace_root=payload.workspace_root,
+                settings=settings,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="会话不存在。") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/sessions/{session_id}/messages", response_model=ChatResponseModel)
+    def post_message(
+        session_id: str,
+        payload: MessageCreateModel,
+        stream: bool = Query(default=False),
+    ) -> Any:
+        try:
+            if stream:
+                def event_stream() -> Any:
+                    for item in app.state.service.stream_chat(session_id, payload.content):
+                        yield _sse_message(item["event"], item["data"])
+
+                return StreamingResponse(event_stream(), media_type="text/event-stream")
+            return app.state.service.chat(session_id, payload.content)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="会话不存在。") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/sessions/{session_id}/tests/run")
+    def run_tests(session_id: str) -> dict[str, Any]:
+        try:
+            return app.state.service.run_session_tests(session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="会话不存在。") from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/eval/latest", response_model=EvalLatestResponseModel)
+    def get_latest_eval() -> dict[str, Any]:
+        return app.state.service.get_latest_eval_result()
+
+    return app
+
+
+app = create_app()
+
+
+def run() -> None:
+    port = int(os.getenv("WEB_PORT", "8765"))
+    uvicorn.run("app.web.main:app", host="127.0.0.1", port=port, reload=False)
+
+
+if __name__ == "__main__":
+    run()

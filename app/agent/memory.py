@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -37,7 +38,27 @@ class ConversationMemory:
         self.turn_metadata.append(row)
 
     def get_messages(self) -> list[dict[str, str]]:
-        return self.messages.copy()
+        return copy.deepcopy(self.messages)
+
+    def get_turn_metadata(self) -> list[dict[str, Any]]:
+        return copy.deepcopy(self.turn_metadata)
+
+    def to_snapshot(self) -> dict[str, Any]:
+        return {
+            "messages": self.get_messages(),
+            "turn_metadata": self.get_turn_metadata(),
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot: dict[str, Any] | None) -> ConversationMemory:
+        if not isinstance(snapshot, dict):
+            return cls()
+        messages = snapshot.get("messages")
+        turn_metadata = snapshot.get("turn_metadata")
+        return cls(
+            messages=copy.deepcopy(messages) if isinstance(messages, list) else [],
+            turn_metadata=copy.deepcopy(turn_metadata) if isinstance(turn_metadata, list) else [],
+        )
 
     def clear(self) -> None:
         self.messages.clear()
