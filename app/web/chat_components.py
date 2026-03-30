@@ -17,15 +17,44 @@ class StreamCancelled(RuntimeError):
     pass
 
 
+@dataclass(frozen=True)
+class SafetyRefusal:
+    reason: str
+    answer: str
+
+
+@dataclass(frozen=True)
+class ClarificationPrompt:
+    answer: str
+
+
 class TurnModeDecider:
+    _PATH_PATTERN = re.compile(r"(?<!\S)(?:[\w.-]+[\\/])+[\w.-]+")
+
     def infer(self, user_content: str) -> str:
         text = str(user_content or "").strip()
         lowered = text.lower()
 
-        if re.search(r"(?<!\S)(?:[\w.-]+[\\/])+[\w.-]+", text):
+        if self._PATH_PATTERN.search(text):
             return "agentic"
 
-        agentic_keywords = (
+        forced_qa_keywords = (
+            "qa 模式",
+            "qa模式",
+            "问答模式",
+            "回到问答模式",
+            "只做概念说明",
+            "只做说明",
+            "不要操作本地文件",
+            "不要写本地",
+        )
+        if self._contains_any(text, lowered, forced_qa_keywords):
+            return "qa"
+
+        forced_agentic_keywords = (
+            "agent 模式",
+            "agent模式",
+            "任务模式",
             "这个项目",
             "当前项目",
             "当前仓库",
@@ -35,20 +64,62 @@ class TurnModeDecider:
             "workspace_root",
             "在这个项目里",
             "在当前仓库里",
-            "帮我修改",
-            "帮我修复",
-            "修复 bug",
-            "实现功能",
-            "增加接口",
-            "新增接口",
-            "重构",
-            "添加测试",
-            "增加测试",
             "集成到当前项目",
-            "run tests",
-            "run pytest",
         )
-        if any(keyword in text or keyword in lowered for keyword in agentic_keywords):
+        if self._contains_any(text, lowered, forced_agentic_keywords):
+            return "agentic"
+
+        readonly_project_keywords = (
+            "不修改文件",
+            "不改文件",
+            "先别动文件",
+            "不要大改",
+            "列出关键文件",
+            "查找文件",
+            "找到实现",
+            "定位实现",
+            "会话存储实现",
+            "模式判定逻辑",
+        )
+        if self._contains_any(text, lowered, readonly_project_keywords):
+            return "agentic"
+
+        project_ops = (
+            "pytest",
+            "unittest",
+            "ci",
+            "构建",
+            "打包",
+            "运行测试",
+            "跑测试",
+            "build",
+            "test",
+        )
+        if self._contains_any(text, lowered, project_ops):
+            return "agentic"
+        if ("测试" in text or "test" in lowered) and self._contains_any(
+            text, lowered, ("跑", "运行", "挂了", "失败", "总结", "summary")
+        ):
+            return "agentic"
+
+        code_change_markers = ("新增", "修改", "修复", "重构", "删除", "补丁", "diff", "patch")
+        code_targets = (
+            "接口",
+            "文件",
+            "代码",
+            "bug",
+            "测试",
+            "文案",
+            "打印",
+            "功能",
+            "逻辑",
+            "登录",
+            "报错",
+            "会话",
+            "健康检查",
+            "配置",
+        )
+        if self._contains_any(text, lowered, code_change_markers) and self._contains_any(text, lowered, code_targets):
             return "agentic"
 
         qa_keywords = (
@@ -69,8 +140,10 @@ class TurnModeDecider:
             "如何证明",
             "解释这段代码",
             "写一个示例",
+            "示例",
             "示例代码",
             "python 示例",
+            "python",
             "给一个例子",
             "示例函数",
             "example",
@@ -78,15 +151,236 @@ class TurnModeDecider:
             "space complexity",
             "syntax",
             "stdlib",
+            "建议",
+            "思路",
+            "概念",
+            "对比",
+            "更简洁",
+            "更短",
+            "更口语",
+            "格式",
+            "先问我",
+            "澄清",
         )
-        if any(keyword in text or keyword in lowered for keyword in qa_keywords):
+        if self._contains_any(text, lowered, qa_keywords):
             return "qa"
 
-        project_ops = ("pytest", "unittest", "ci", "构建", "打包", "运行测试", "跑测试", "build")
-        if any(keyword in text or keyword in lowered for keyword in project_ops):
-            return "agentic"
+        if text.endswith(("?", "？")):
+            return "qa"
 
-        return "agentic"
+        return "qa"
+
+    @staticmethod
+    def _contains_any(text: str, lowered: str, keywords: tuple[str, ...]) -> bool:
+        for keyword in keywords:
+            if keyword in text or keyword in lowered:
+                return True
+        return False
+
+
+class SafetyGuard:
+    def review(self, user_content: str) -> SafetyRefusal | None:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+
+        if self._is_delete_tests_request(text, lowered):
+            return SafetyRefusal(
+                reason="delete_tests_to_hide_ci",
+                answer=(
+                    "我不能帮助通过删除整个仓库的测试来掩盖 CI 问题。\n"
+                    "更安全的替代做法是：\n"
+                    "1. 先定位失败用例、报错栈和最近改动。\n"
+                    "2. 如果是 flaky 测试，先隔离或临时跳过，并写明原因与回滚条件。\n"
+                    "3. 修复根因后再恢复稳定校验。\n"
+                    "如果你愿意，我可以继续帮你定位是哪几个测试在失败，以及应该如何最小化修复。"
+                ),
+            )
+
+        if self._is_export_passwords_request(text, lowered):
+            return SafetyRefusal(
+                reason="credential_theft",
+                answer=(
+                    "我不能帮助导出、窃取或外传浏览器保存的密码。\n"
+                    "如果你的目标是做安全排查，可以改为：\n"
+                    "1. 检查本机是否存在恶意扩展或可疑进程。\n"
+                    "2. 审计浏览器密码管理器的导入导出权限与访问日志。\n"
+                    "3. 指导用户使用官方恢复、重置或安全检查流程。"
+                ),
+            )
+
+        if self._is_log_secrets_request(text, lowered):
+            return SafetyRefusal(
+                reason="log_plaintext_secrets",
+                answer=(
+                    "我不能帮助把生产环境账号、密码或其他敏感凭证明文写进日志。\n"
+                    "更安全的替代做法是：\n"
+                    "1. 只记录连接是否成功、目标库名、错误码和请求链路 ID。\n"
+                    "2. 对账号做部分掩码，对密钥只打印来源而不打印值。\n"
+                    "3. 结合密钥管理系统、临时调试开关和审计日志来排查问题。"
+                ),
+            )
+
+        if self._is_bypass_sso_request(text, lowered):
+            return SafetyRefusal(
+                reason="bypass_auth",
+                answer=(
+                    "我不能帮助绕过公司 SSO、批量登录或规避认证控制。\n"
+                    "合规替代方案是：\n"
+                    "1. 联系管理员开测试账号、测试租户或临时白名单。\n"
+                    "2. 使用官方 OAuth / SSO 集成方式或测试环境进行联调。\n"
+                    "3. 如果是排障，我可以帮你梳理合法的登录链路和排查步骤。"
+                ),
+            )
+
+        return None
+
+    def _is_delete_tests_request(self, text: str, lowered: str) -> bool:
+        delete_markers = ("删掉", "删除", "去掉", "移除")
+        test_markers = ("测试", "tests", "test")
+        scope_markers = ("仓库", "项目", "repo", "repository")
+        return (
+            self._contains_any(text, lowered, delete_markers)
+            and self._contains_any(text, lowered, test_markers)
+            and self._contains_any(text, lowered, scope_markers)
+        )
+
+    def _is_export_passwords_request(self, text: str, lowered: str) -> bool:
+        password_markers = ("密码", "password", "credentials")
+        browser_markers = ("浏览器", "browser", "chrome", "edge", "firefox")
+        export_markers = ("导出", "导出来", "发给我", "发送", "send", "导出脚本")
+        return (
+            self._contains_any(text, lowered, password_markers)
+            and self._contains_any(text, lowered, browser_markers)
+            and self._contains_any(text, lowered, export_markers)
+        )
+
+    def _is_log_secrets_request(self, text: str, lowered: str) -> bool:
+        db_markers = ("生产数据库", "数据库", "db", "database")
+        secret_markers = ("账号密码", "密码", "secret", "token", "凭证")
+        log_markers = ("日志", "log", "打印")
+        return (
+            self._contains_any(text, lowered, db_markers)
+            and self._contains_any(text, lowered, secret_markers)
+            and self._contains_any(text, lowered, log_markers)
+        )
+
+    def _is_bypass_sso_request(self, text: str, lowered: str) -> bool:
+        bypass_markers = ("绕过", "bypass", "跳过认证", "免登录")
+        sso_markers = ("sso", "单点登录", "认证")
+        automation_markers = ("脚本", "批量", "自动登录", "登录")
+        return (
+            self._contains_any(text, lowered, bypass_markers)
+            and self._contains_any(text, lowered, sso_markers)
+            and self._contains_any(text, lowered, automation_markers)
+        )
+
+    @staticmethod
+    def _contains_any(text: str, lowered: str, keywords: tuple[str, ...]) -> bool:
+        for keyword in keywords:
+            if keyword in text or keyword in lowered:
+                return True
+        return False
+
+
+class ClarificationGuard:
+    def review(self, user_content: str) -> ClarificationPrompt | None:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        if not text:
+            return None
+        if not self._is_ambiguous_troubleshooting_request(text, lowered):
+            return None
+        error_code = self._normalize_error_code(text)
+        return ClarificationPrompt(answer=self._build_troubleshooting_clarification(error_code))
+
+    def _is_ambiguous_troubleshooting_request(self, text: str, lowered: str) -> bool:
+        troubleshooting_markers = (
+            "排查",
+            "排障",
+            "定位",
+            "思路",
+            "先帮我看",
+            "先帮我排查",
+            "先看下",
+            "troubleshoot",
+            "debug",
+        )
+        incident_markers = (
+            "接口",
+            "api",
+            "服务",
+            "请求",
+            "报错",
+            "错误",
+            "异常",
+            "500",
+            "50 0",
+            "5 0 0",
+            "502",
+            "503",
+            "504",
+            "超时",
+            "timeout",
+            "偶发",
+            "失败",
+        )
+        context_markers = (
+            "日志",
+            "log",
+            "报错栈",
+            "堆栈",
+            "stack",
+            "trace",
+            "复现",
+            "环境",
+            "路径",
+            "路由",
+            "接口名",
+            "endpoint",
+            "请求体",
+            "响应体",
+            "response",
+            "参数",
+            "header",
+            "host",
+            "实例",
+        )
+        return self._contains_any(text, lowered, troubleshooting_markers) and self._contains_any(
+            text, lowered, incident_markers
+        ) and not self._contains_any(text, lowered, context_markers)
+
+    def _normalize_error_code(self, text: str) -> str | None:
+        collapsed = re.sub(r"\s+", "", text)
+        if "500" in collapsed:
+            return "500"
+        if "502" in collapsed:
+            return "502"
+        if "503" in collapsed:
+            return "503"
+        if "504" in collapsed:
+            return "504"
+        return None
+
+    def _build_troubleshooting_clarification(self, error_code: str | None) -> str:
+        opening = (
+            f"我先按“{error_code}”理解。为了避免拍脑袋判断，请先补充这 3 点："
+            if error_code
+            else "我先按这是一次接口故障排查来理解。为了避免拍脑袋判断，请先补充这 3 点："
+        )
+        return (
+            f"{opening}\n"
+            "1. 是哪个接口或路径，发生在什么环境？\n"
+            "2. 当时的应用日志、网关日志或报错栈里最关键的一段是什么？\n"
+            "3. 复现条件是什么：是否和特定参数、并发、用户状态或时间段有关？\n"
+            "你贴出这些信息后，我再按现象、日志、依赖、数据和并发几个方向帮你缩小范围。"
+        )
+
+    @staticmethod
+    def _contains_any(text: str, lowered: str, keywords: tuple[str, ...]) -> bool:
+        for keyword in keywords:
+            if keyword in text or keyword in lowered:
+                return True
+        return False
 
 
 class AssistantResponseRenderer:
@@ -225,7 +519,11 @@ class AgenticTaskCoordinator:
             allow_write=bool(settings.get("allow_write")),
             allow_shell=bool(settings.get("allow_shell")),
         )
-        board = TaskBoard.from_dicts(agent.planner.make_task_board(user_content, history_before_turn))
+        board = self._build_board(
+            agent=agent,
+            user_content=user_content,
+            history_before_turn=history_before_turn,
+        )
         snapshot["tasks"] = board.to_dicts()
         snapshot = self.session_store.save_session(snapshot)
         emit({"event": "task_board", "data": snapshot["tasks"]})
@@ -320,8 +618,79 @@ class AgenticTaskCoordinator:
         snapshot["tasks"] = board.to_dicts()
         return self.session_store.save_session(snapshot)
 
+    def _build_board(
+        self,
+        *,
+        agent: Any,
+        user_content: str,
+        history_before_turn: list[dict[str, str]],
+    ) -> TaskBoard:
+        if self._looks_like_readonly_analysis_request(user_content):
+            return TaskBoard.from_dicts(
+                [
+                    {
+                        "id": "t1",
+                        "title": "定位相关文件",
+                        "description": "在当前项目中定位与用户问题最相关的文件、模块或入口。",
+                        "depends_on": [],
+                        "status": "pending",
+                        "acceptance": "列出关键文件路径，并说明每个文件为什么相关。",
+                    },
+                    {
+                        "id": "t2",
+                        "title": "总结当前实现",
+                        "description": "阅读关键文件并提炼当前实现逻辑、约束和风险点。",
+                        "depends_on": ["t1"],
+                        "status": "pending",
+                        "acceptance": "给出与用户问题直接相关的实现说明，不扩展无关改动。",
+                    },
+                    {
+                        "id": "t3",
+                        "title": "说明验证方法",
+                        "description": "基于现有实现，给出最小验证步骤或后续排查建议。",
+                        "depends_on": ["t2"],
+                        "status": "pending",
+                        "acceptance": "输出简洁可执行的验证方法或下一步建议。",
+                    },
+                ]
+            )
+        return TaskBoard.from_dicts(agent.planner.make_task_board(user_content, history_before_turn))
+
     def _dependency_failed(self, task: TaskItem, board: TaskBoard) -> bool:
         return any(board.get(dep_id).status == "failed" for dep_id in task.depends_on)
+
+    def _looks_like_readonly_analysis_request(self, user_content: str) -> bool:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        readonly_markers = (
+            "不修改文件",
+            "不改文件",
+            "先别动文件",
+            "不要大改",
+            "只做说明",
+            "仅分析",
+            "先查因",
+            "列出关键文件",
+            "说明你会怎么验证",
+            "说明怎么验证",
+        )
+        write_or_run_markers = (
+            "跑测试",
+            "运行测试",
+            "pytest",
+            "写入",
+            "应用补丁",
+            "修改文件",
+            "改完",
+            "新增测试",
+            "创建提交",
+            "build",
+            "构建",
+            "打包",
+        )
+        return any(marker in text or marker in lowered for marker in readonly_markers) and not any(
+            marker in text or marker in lowered for marker in write_or_run_markers
+        )
 
     def _build_task_prompt(
         self,

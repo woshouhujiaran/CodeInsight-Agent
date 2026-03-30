@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "session_id": "85c81d5a6d67406583e32ca1d1f640b1",
+  "title": "解释一下 Web 会话为什么要保存历史消息，先做概念说明。",
+  "created_at": "2026-03-30T12:15:12.410750+00:00",
+  "updated_at": "2026-03-30T12:15:32.096730+00:00",
+  "workspace_root": "C:\\Users\\wcz30\\Desktop\\CodeInsight-Agent",
+  "messages": [
+    {
+      "role": "user",
+      "content": "解释一下 Web 会话为什么要保存历史消息，先做概念说明。"
+    },
+    {
+      "role": "assistant",
+      "content": "Web 会话中保存历史消息主要是为了**维持对话的上下文连续性**，让 AI 助手能够理解当前问题在整个对话中的位置和关联，从而给出更连贯、准确的回答。\n\n### 核心概念说明\n\n1. **上下文理解**  \n   许多用户问题不是孤立的，而是基于之前的对话内容。例如：\n   - 用户先问：“Python 中怎么读取 CSV 文件？”\n   - 接着问：“那怎么过滤出特定列？”  \n   如果没有历史消息，第二个问题就缺少了“CSV 文件”这个上下文，AI 可能无法准确理解“过滤列”指的是对 CSV 数据的操作。\n\n2. **状态维持**  \n   对话可能涉及多轮交互，比如：\n   - 用户定义了一个变量或设置\n   - 后续问题基于这个定义继续深入  \n   保存历史相当于维持了会话的“记忆”，避免用户每次都要重复之前的信息。\n\n3. **连贯性体验**  \n   在长对话中，用户可能引用之前的回答（如“用刚才的方法”“按第二个方案”）。历史消息让 AI 能跟踪整个对话流，提供自然流畅的交互体验。\n\n### 技术实现角度\n- 在 Web 应用中，历史消息通常保存在**客户端**（如浏览器的内存、localStorage）或**服务端会话存储**中。\n- 每次新请求时，历史消息会作为上下文的一部分发送给 AI 模型（例如通过 `messages` 数组包含之前的问答对）。\n- 模型基于完整历史生成回答，而不是只看最新一条消息。\n\n### 简单示例（伪代码逻辑）\n```javascript\n// 示意：会话中保存的消息数组\nlet chatHistory = [\n  { role: 'user', content: '怎么用 Python 排序列表？' },\n  { role: 'assistant', content: '可以用 list.sort() 或 sorted()...' },\n  { role: 'user', content: '如果我要降序呢？' } // 当前问题\n];\n// AI 处理时会看到全部三条消息，知道“降序”指的是对列表排序的降序\n```\n\n### 注意事项\n- 历史消息长度通常有限制（因模型有 token 数限制），过长的对话可能会被截断或摘要处理。\n- 隐私敏感场景下，历史消息可能需要加密或定期清理。\n\n总之，保存历史消息是为了模拟真实对话的连续性，让 AI 能够进行**有状态的、上下文感知的交互**，而不是每次重置成“初次见面”的状态。"
+    }
+  ],
+  "turn_metadata": [
+    {
+      "plan": [],
+      "tool_results": [],
+      "recovery_applied": false,
+      "trace_id": "",
+      "mode": "qa",
+      "agentic": false,
+      "tasks": [],
+      "task_results": [],
+      "last_test_summary": null
+    }
+  ],
+  "tasks": [],
+  "last_test_summary": null,
+  "settings": {
+    "allow_write": false,
+    "allow_shell": false,
+    "test_command": "",
+    "auto_run_tests": false,
+    "max_turns": 3
+  }
+}

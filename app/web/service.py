@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -9,7 +10,9 @@ from app.runtime import create_agent_from_env, create_llm_from_env
 from app.web.chat_components import (
     AgenticTaskCoordinator,
     AssistantResponseRenderer,
+    ClarificationGuard,
     EventCallback,
+    SafetyGuard,
     SessionTestCoordinator,
     StreamCancelled,
     TurnModeDecider,
@@ -34,6 +37,8 @@ class WebAgentService:
         self.repo_root = Path(repo_root or Path(__file__).resolve().parents[2]).resolve()
         self.outputs_dir = Path(outputs_dir).resolve()
         self.mode_decider = TurnModeDecider()
+        self.safety_guard = SafetyGuard()
+        self.clarification_guard = ClarificationGuard()
         self.renderer = AssistantResponseRenderer()
         self.task_coordinator = AgenticTaskCoordinator(
             session_store=self.session_store,
@@ -156,7 +161,11 @@ class WebAgentService:
         if not user_content:
             raise ValueError("消息内容不能为空。")
 
-        mode = self.mode_decider.infer(user_content)
+        safety_refusal = self.safety_guard.review(user_content)
+        mode = "qa" if safety_refusal is not None else self.mode_decider.infer(user_content)
+        clarification_prompt = None
+        if safety_refusal is None and mode == "qa":
+            clarification_prompt = self.clarification_guard.review(user_content)
         snapshot = self.session_store.get_session(session_id)
         settings = normalize_session_settings(snapshot.get("settings"))
         memory = ConversationMemory.from_snapshot(snapshot)
@@ -170,7 +179,36 @@ class WebAgentService:
         snapshot = self.session_store.save_session(snapshot)
 
         emit({"event": "mode", "data": {"mode": mode, "agentic": mode == "agentic"}})
-        emit({"event": "session", "data": snapshot})
+        emit({"event": "session", "data": deepcopy(snapshot)})
+
+        if safety_refusal is not None:
+            return self._finalize_text_turn(
+                memory=memory,
+                snapshot=snapshot,
+                answer=safety_refusal.answer,
+                emit=emit,
+                cancel_event=cancel_event,
+                metadata_extra={
+                    "agentic": False,
+                    "mode": "qa",
+                    "safety_blocked": True,
+                    "safety_reason": safety_refusal.reason,
+                },
+            )
+
+        if clarification_prompt is not None:
+            return self._finalize_text_turn(
+                memory=memory,
+                snapshot=snapshot,
+                answer=clarification_prompt.answer,
+                emit=emit,
+                cancel_event=cancel_event,
+                metadata_extra={
+                    "agentic": False,
+                    "mode": "qa",
+                    "clarification_requested": True,
+                },
+            )
 
         if mode == "qa":
             return self._run_qa_turn(
@@ -235,7 +273,7 @@ class WebAgentService:
         snapshot = self.session_store.save_session(snapshot)
 
         emit({"event": "assistant_final", "data": {"content": final_answer}})
-        emit({"event": "session", "data": snapshot})
+        emit({"event": "session", "data": deepcopy(snapshot)})
         return {
             "session": snapshot,
             "assistant": final_answer,
@@ -256,6 +294,25 @@ class WebAgentService:
     ) -> dict[str, Any]:
         prompt = self._build_qa_prompt(user_content=user_content, history=history)
         answer = str(llm.generate_text(prompt=prompt, system_prompt="你是面向 Web 用户的代码问答助手。") or "")
+        return self._finalize_text_turn(
+            memory=memory,
+            snapshot=snapshot,
+            answer=answer,
+            emit=emit,
+            cancel_event=cancel_event,
+            metadata_extra={"agentic": False, "mode": "qa"},
+        )
+
+    def _finalize_text_turn(
+        self,
+        *,
+        memory: ConversationMemory,
+        snapshot: dict[str, Any],
+        answer: str,
+        emit: EventCallback,
+        cancel_event: Any | None,
+        metadata_extra: dict[str, Any],
+    ) -> dict[str, Any]:
         self._ensure_not_cancelled(cancel_event)
 
         for chunk in self.renderer.chunk_text(answer):
@@ -266,7 +323,7 @@ class WebAgentService:
             plan=[],
             tool_results=[],
             recovery_applied=False,
-            extra={"agentic": False, "mode": "qa"},
+            extra=metadata_extra,
         )
 
         snapshot["messages"] = memory.get_messages()
@@ -276,7 +333,7 @@ class WebAgentService:
         snapshot = self.session_store.save_session(snapshot)
 
         emit({"event": "assistant_final", "data": {"content": answer}})
-        emit({"event": "session", "data": snapshot})
+        emit({"event": "session", "data": deepcopy(snapshot)})
 
         return {
             "session": snapshot,
@@ -298,7 +355,11 @@ class WebAgentService:
             "1. 仅基于用户问题和对话历史回答，不假设能访问本地工作区、仓库文件或真实路径。\n"
             "2. 不要声称已经修改文件、创建文件、运行测试、执行命令，或读取了当前项目内容。\n"
             "3. 如需代码，只给示例代码片段，并明确这是示例，不会自动写入任何本地文件。\n"
-            "4. 不要生成任务列表或任务板，直接给清晰说明即可。\n\n"
+            "4. 不要生成任务列表或任务板，直接给清晰说明即可。\n"
+            "5. 如果用户信息不完整、存在多种理解方式，或请求明显依赖尚未提供的上下文，先提出 1 到 3 个简短澄清问题，不要自行假设。\n"
+            "6. 如果用户是在调整回答风格或格式偏好，先确认他最想调整的是长度、步骤数、语气、结构还是示例数量。\n"
+            "7. 如果用户存在明显错别字、空格断裂或口语化表达，请按最合理含义理解；必要时可先说明你的理解再回答。\n"
+            "8. 如果请求涉及越权、泄露敏感信息、绕过认证或破坏性操作，明确拒绝，并给更安全的替代建议。\n\n"
             f"[对话历史]\n{history_text}\n\n"
             f"[当前问题]\n{user_content}\n"
         )

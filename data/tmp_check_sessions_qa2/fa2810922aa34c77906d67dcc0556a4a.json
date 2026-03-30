@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "session_id": "fa2810922aa34c77906d67dcc0556a4a",
+  "title": "????????????? Python ??",
+  "created_at": "2026-03-30T12:00:00.836246+00:00",
+  "updated_at": "2026-03-30T12:00:00.849043+00:00",
+  "workspace_root": "",
+  "messages": [
+    {
+      "role": "user",
+      "content": "????????????? Python ??"
+    }
+  ],
+  "turn_metadata": [],
+  "tasks": [],
+  "last_test_summary": null,
+  "settings": {
+    "allow_write": false,
+    "allow_shell": false,
+    "test_command": "",
+    "auto_run_tests": false,
+    "max_turns": 8
+  }
+}
