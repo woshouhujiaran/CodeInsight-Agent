@@ -7,19 +7,31 @@ from fastapi.testclient import TestClient
 from app.web.main import create_app
 from app.web.service import WebAgentService
 from app.web.session_store import SessionStore
-from tests.web_test_utils import FakeAgentFactory, build_turn
+from tests.web_test_utils import FakeAgentFactory, FakeLLM, build_turn
 
 
-def _client(tmp_path: Path) -> tuple[TestClient, SessionStore]:
+def _client(
+    tmp_path: Path,
+    *,
+    agent_factory: FakeAgentFactory | None = None,
+    llm_factory: object | None = None,
+) -> tuple[TestClient, SessionStore]:
     store = SessionStore(tmp_path / "sessions")
-    factory = FakeAgentFactory(
+    factory = agent_factory or FakeAgentFactory(
         turns=[
             build_turn("已定位文件。", [{"tool": "search_tool", "status": "ok"}]),
             build_turn("给出补丁建议。", [{"tool": "analyze_tool", "status": "ok"}]),
             build_turn("验证完成。", [{"tool": "analyze_tool", "status": "ok"}]),
         ]
     )
-    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+    kwargs = {
+        "session_store": store,
+        "agent_factory": factory,
+        "repo_root": tmp_path,
+    }
+    if llm_factory is not None:
+        kwargs["llm_factory"] = llm_factory
+    service = WebAgentService(**kwargs)
     client = TestClient(create_app(service))
     return client, store
 
@@ -66,6 +78,15 @@ def test_web_api_session_crud(tmp_path: Path) -> None:
     assert deleted.json() == {"deleted": True, "session_id": session_id}
 
 
+def test_web_api_can_create_session_without_workspace(tmp_path: Path) -> None:
+    client, _store = _client(tmp_path)
+
+    created = client.post("/sessions", json={"settings": {}})
+
+    assert created.status_code == 200
+    assert created.json()["workspace_root"] == ""
+
+
 def test_web_api_post_message_non_stream(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -85,6 +106,31 @@ def test_web_api_post_message_non_stream(tmp_path: Path) -> None:
     assert len(body["session"]["tasks"]) == 3
 
 
+def test_web_api_qa_message_works_without_workspace(tmp_path: Path) -> None:
+    fake_llm = FakeLLM(answer="这是 QA 回答。示例代码只会以内联片段给出，不会写入本地文件。")
+    agent_factory = FakeAgentFactory(turns=[build_turn("不应被调用")])
+    client, _store = _client(
+        tmp_path,
+        agent_factory=agent_factory,
+        llm_factory=lambda: fake_llm,
+    )
+    created = client.post("/sessions", json={"settings": {}})
+    session_id = created.json()["session_id"]
+
+    response = client.post(
+        f"/sessions/{session_id}/messages",
+        json={"content": "解释一下并查集，并给一个示例函数"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["assistant"] == fake_llm.answer
+    assert body["session"]["workspace_root"] == ""
+    assert body["session"]["tasks"] == []
+    assert body["task_results"] == []
+    assert agent_factory.created_agents == []
+
+
 def test_web_api_sse_stream_emits_task_board_and_final(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -102,3 +148,21 @@ def test_web_api_sse_stream_emits_task_board_and_final(tmp_path: Path) -> None:
 
     assert "event: task_board" in text
     assert "event: assistant_final" in text
+
+
+def test_web_api_qa_stream_does_not_emit_task_board(tmp_path: Path) -> None:
+    fake_llm = FakeLLM(answer="这是 QA 模式流式回答。")
+    client, _store = _client(tmp_path, llm_factory=lambda: fake_llm)
+    created = client.post("/sessions", json={"settings": {}})
+    session_id = created.json()["session_id"]
+
+    with client.stream(
+        "POST",
+        f"/sessions/{session_id}/messages?stream=1",
+        json={"content": "解释一下快速排序原理"},
+    ) as response:
+        assert response.status_code == 200
+        text = "".join(chunk for chunk in response.iter_text())
+
+    assert "event: assistant_final" in text
+    assert "event: task_board" not in text

@@ -302,7 +302,7 @@
         <div class="card">
           <h3>环境开关</h3>
           <div class="mono" style="margin-bottom: 8px;">工作区根目录</div>
-          <input id="workspaceInput" type="text" value="." />
+          <input id="workspaceInput" type="text" value="" placeholder="QA 模式可留空；任务模式再填写真实项目目录" />
           <div class="toggle">
             <span>允许写盘</span>
             <input id="allowWriteInput" type="checkbox" />
@@ -385,7 +385,7 @@
 
     function applySessionToControls(session) {
       const settings = session?.settings || {};
-      document.getElementById("workspaceInput").value = session?.workspace_root || ".";
+      document.getElementById("workspaceInput").value = session?.workspace_root || "";
       document.getElementById("allowWriteInput").checked = !!settings.allow_write;
       document.getElementById("allowShellInput").checked = !!settings.allow_shell;
       document.getElementById("autoRunTestsInput").checked = !!settings.auto_run_tests;
@@ -404,7 +404,7 @@
           <div class="session-card ${active}" data-session-id="${session.session_id}">
             <div class="session-title">${escapeHtml(session.title)}</div>
             <div class="session-meta">${escapeHtml(session.updated_at)}</div>
-            <div class="session-meta">${escapeHtml(session.workspace_root)}</div>
+            <div class="session-meta">${escapeHtml(session.workspace_root || "QA / 未设置工作区")}</div>
           </div>
         `;
       }).join("");
@@ -481,7 +481,7 @@
         chatMetaEl.textContent = "尚未选择会话";
         return;
       }
-      chatMetaEl.textContent = `${state.currentSession.title} | ${state.currentSession.workspace_root}`;
+      chatMetaEl.textContent = `${state.currentSession.title} | ${state.currentSession.workspace_root || "QA / 未设置工作区"}`;
     }
 
     async function fetchJson(url, options = {}) {
@@ -513,7 +513,7 @@
 
     async function createSession() {
       const payload = {
-        workspace_root: document.getElementById("workspaceInput").value.trim() || ".",
+        workspace_root: document.getElementById("workspaceInput").value.trim(),
         settings: sessionSettings(),
       };
       const session = await fetchJson("/sessions", {

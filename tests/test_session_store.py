@@ -16,6 +16,15 @@ def test_session_store_create_and_get(tmp_path: Path) -> None:
     assert loaded["title"] == "新会话"
 
 
+def test_session_store_allows_empty_workspace_root(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    created = store.create_session(workspace_root="")
+
+    loaded = store.get_session(created["session_id"])
+
+    assert loaded["workspace_root"] == ""
+
+
 def test_session_store_list_sessions_sorted_by_updated_at(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     first = store.create_session(workspace_root=str(tmp_path / "one"))
@@ -60,7 +69,13 @@ def test_session_store_persists_messages_tasks_and_test_summary(tmp_path: Path) 
             "summary": "",
         },
     ]
-    session["last_test_summary"] = {"passed": True, "failed": False, "duration_ms": 12, "command": "pytest", "raw_tail": ""}
+    session["last_test_summary"] = {
+        "passed": True,
+        "failed": False,
+        "duration_ms": 12,
+        "command": "pytest",
+        "raw_tail": "",
+    }
 
     store.save_session(session)
     loaded = store.get_session(session["session_id"])
