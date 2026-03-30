@@ -14,6 +14,8 @@ from app.tools.base_tool import BaseTool, make_tool_result
 from app.utils.logger import get_logger
 
 _PREVIEW_MAX = 2000
+_BANNED_IMPORT_ROOTS = frozenset({"os", "subprocess", "socket", "requests"})
+_BANNED_CALL_NAMES = frozenset({"open", "exec", "eval", "__import__"})
 
 
 def _truncate(text: str, max_len: int = _PREVIEW_MAX) -> str:
@@ -47,6 +49,52 @@ def _sanitize_error_summary(text: str) -> str:
     text = re.sub(r"[A-Za-z]:\\[^\s'\"]+", "<redacted_path>", text)
     text = re.sub(r"/[^\s'\"]+", "<redacted_path>", text)
     return text
+
+
+def _resolve_symbol_name(node: ast.AST, aliases: dict[str, str]) -> str:
+    if isinstance(node, ast.Name):
+        return aliases.get(node.id, node.id)
+    if isinstance(node, ast.Attribute):
+        prefix = _resolve_symbol_name(node.value, aliases)
+        if not prefix:
+            return node.attr
+        return f"{prefix}.{node.attr}"
+    return ""
+
+
+def _static_test_code_review(code: str) -> str | None:
+    try:
+        tree = ast.parse(code)
+    except SyntaxError:
+        return "Generated test code is not valid Python."
+
+    aliases: dict[str, str] = {}
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                root = alias.name.split(".")[0]
+                if root in _BANNED_IMPORT_ROOTS:
+                    return f"Unsafe import is not allowed in generated tests: {root}"
+                aliases[alias.asname or root] = alias.name
+        elif isinstance(node, ast.ImportFrom):
+            module = str(node.module or "")
+            root = module.split(".")[0]
+            if root in _BANNED_IMPORT_ROOTS:
+                return f"Unsafe import is not allowed in generated tests: {root}"
+            for alias in node.names:
+                symbol = alias.name
+                full_name = f"{module}.{symbol}" if module else symbol
+                aliases[alias.asname or symbol] = full_name
+        elif isinstance(node, ast.Call):
+            called_name = _resolve_symbol_name(node.func, aliases)
+            root = called_name.split(".")[0]
+            if called_name in _BANNED_CALL_NAMES:
+                return f"Unsafe call is not allowed in generated tests: {called_name}"
+            if root in _BANNED_IMPORT_ROOTS:
+                return f"Unsafe call is not allowed in generated tests: {called_name}"
+            if called_name.endswith(".open"):
+                return f"Unsafe call is not allowed in generated tests: {called_name}"
+    return None
 
 
 class TestTool(BaseTool):
@@ -88,6 +136,23 @@ class TestTool(BaseTool):
         self.logger.debug("TestTool raw output: %s", raw)
 
         result = self._parse_result(raw=raw, optimized_code=optimized_code)
+        review_error = _static_test_code_review(str(result.get("test_code") or ""))
+        if review_error:
+            result["sandbox"] = {
+                "verdict": "rejected",
+                "success": False,
+                "timed_out": False,
+                "error_summary": review_error,
+                "stdout_preview": "",
+                "stderr_preview": "",
+                "file_path": "",
+            }
+            return make_tool_result(
+                status="error",
+                data=result,
+                error=review_error,
+                meta={"input_length": len(input_text), "static_review_rejected": True},
+            )
         self._attach_sandbox_result(result)
         return make_tool_result(
             status="ok",

@@ -16,6 +16,25 @@ from app.utils.logger import get_logger
 
 logger = get_logger("codeinsight.rag.load_or_build")
 
+DEFAULT_INCLUDE_SUFFIXES: tuple[str, ...] = (
+    ".py",
+    ".md",
+    ".txt",
+    ".js",
+    ".ts",
+    ".tsx",
+    ".java",
+)
+DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (".git", ".pytest_cache", "__pycache__", ".venv", "venv")
+
+
+def compute_vector_store_snapshot(codebase_dir: str) -> str:
+    return compute_codebase_snapshot(
+        str(Path(codebase_dir).resolve()),
+        include_suffixes=DEFAULT_INCLUDE_SUFFIXES,
+        excluded_dirs=frozenset(DEFAULT_EXCLUDED_DIRS),
+    )
+
 
 def load_or_build_vector_store(
     codebase_dir: str,
@@ -25,16 +44,8 @@ def load_or_build_vector_store(
     force_reindex: bool = False,
     chunk_size: int = 500,
     chunk_overlap: int = 50,
-    include_suffixes: tuple[str, ...] = (
-        ".py",
-        ".md",
-        ".txt",
-        ".js",
-        ".ts",
-        ".tsx",
-        ".java",
-    ),
-    excluded_dirs: tuple[str, ...] = (".git", ".pytest_cache", "__pycache__", ".venv", "venv"),
+    include_suffixes: tuple[str, ...] = DEFAULT_INCLUDE_SUFFIXES,
+    excluded_dirs: tuple[str, ...] = DEFAULT_EXCLUDED_DIRS,
 ) -> tuple[FaissVectorStore, dict[str, Any]]:
     """
     Load persisted FAISS index when meta snapshot matches the codebase; otherwise ingest and save.

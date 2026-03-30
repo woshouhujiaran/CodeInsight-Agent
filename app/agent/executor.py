@@ -38,7 +38,12 @@ class Executor:
         ordered = topological_sort_steps(plan)
         return self.execute_tools(ordered)
 
-    def execute_agentic_calls(self, calls: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def execute_agentic_calls(
+        self,
+        calls: list[dict[str, Any]],
+        *,
+        cancel_event: Any | None = None,
+    ) -> list[dict[str, Any]]:
         """
         Run agentic-style tool invocations in list order (no deps).
 
@@ -49,6 +54,8 @@ class Executor:
             return []
         results: list[dict[str, Any]] = []
         for batch_idx, call in enumerate(calls, start=1):
+            if cancel_event is not None and cancel_event.is_set():
+                break
             step_started = time.perf_counter()
             if not isinstance(call, dict):
                 name: Any = None

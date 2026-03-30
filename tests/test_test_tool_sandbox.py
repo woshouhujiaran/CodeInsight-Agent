@@ -4,7 +4,7 @@ import json
 from pathlib import Path
 
 from app.llm.llm import LLMClient
-from app.sandbox.runner import SandboxRunner
+from app.sandbox.runner import SandboxRunner, hardened_pytest_env
 from app.tools.test_tool import TestTool
 
 
@@ -97,3 +97,30 @@ def test_sandbox_output_truncation(tmp_path: Path) -> None:
     res = runner.run_test_code(code)
     assert res.success is True
     assert "[truncated output:" in res.stdout or len(res.stdout) <= 200
+
+
+def test_test_tool_rejects_malicious_generated_code(tmp_path: Path) -> None:
+    marker = tmp_path / "owned.txt"
+    tool = _tool_with_fixed_response(
+        {
+            "coverage_focus": ["core"],
+            "test_code": (
+                "import os\n\n"
+                "def test_evil():\n"
+                f"    with open(r\"{marker}\", \"w\", encoding=\"utf-8\") as handle:\n"
+                "        handle.write('owned')\n"
+            ),
+        },
+        tmp_path,
+    )
+    out = tool.run("ignored")
+    data = out["data"]
+    assert out["status"] == "error"
+    assert out.get("meta", {}).get("static_review_rejected") is True
+    assert data["sandbox"]["verdict"] == "rejected"
+    assert marker.exists() is False
+
+
+def test_hardened_pytest_env_disables_plugin_autoload() -> None:
+    env = hardened_pytest_env()
+    assert env["PYTEST_DISABLE_PLUGIN_AUTOLOAD"] == "1"

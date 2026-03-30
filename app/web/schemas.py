@@ -2,19 +2,18 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.contracts import (
+    MessageModel,
+    SessionSettingsModel,
+    TaskResultModel,
+    TestSummaryModel,
+    TurnMetadataModel,
+)
 from pydantic import BaseModel, Field
 
 
-class SessionSettingsModel(BaseModel):
-    allow_write: bool = False
-    allow_shell: bool = False
-    test_command: str = ""
-    auto_run_tests: bool = False
-    max_turns: int = 8
-
-
 class SessionCreateModel(BaseModel):
-    workspace_root: str = Field(..., min_length=1)
+    workspace_root: str = ""
     settings: SessionSettingsModel = Field(default_factory=SessionSettingsModel)
 
 
@@ -42,18 +41,18 @@ class SessionSnapshotModel(BaseModel):
     created_at: str
     updated_at: str
     workspace_root: str
-    messages: list[dict[str, str]]
-    turn_metadata: list[dict[str, Any]]
+    messages: list[MessageModel]
+    turn_metadata: list[TurnMetadataModel]
     tasks: list[dict[str, Any]]
-    last_test_summary: dict[str, Any] | None = None
+    last_test_summary: TestSummaryModel | None = None
     settings: SessionSettingsModel
 
 
 class ChatResponseModel(BaseModel):
     session: SessionSnapshotModel
     assistant: str
-    task_results: list[dict[str, Any]]
-    last_test_summary: dict[str, Any] | None = None
+    task_results: list[TaskResultModel]
+    last_test_summary: TestSummaryModel | None = None
 
 
 class EvalLatestResponseModel(BaseModel):

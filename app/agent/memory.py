@@ -4,6 +4,8 @@ import copy
 from dataclasses import dataclass, field
 from typing import Any
 
+from app.contracts import normalize_messages, normalize_test_summary, normalize_tool_trace, normalize_turn_metadata
+
 
 @dataclass
 class ConversationMemory:
@@ -29,13 +31,15 @@ class ConversationMemory:
     ) -> None:
         row: dict[str, Any] = {
             "plan": plan,
-            "tool_results": tool_results,
+            "tool_results": normalize_tool_trace(tool_results),
             "recovery_applied": recovery_applied,
             "trace_id": trace_id,
         }
         if extra:
             row.update(extra)
-        self.turn_metadata.append(row)
+            if "last_test_summary" in row:
+                row["last_test_summary"] = normalize_test_summary(row.get("last_test_summary"))
+        self.turn_metadata.append(normalize_turn_metadata([row])[0])
 
     def get_messages(self) -> list[dict[str, str]]:
         return copy.deepcopy(self.messages)
@@ -53,11 +57,11 @@ class ConversationMemory:
     def from_snapshot(cls, snapshot: dict[str, Any] | None) -> ConversationMemory:
         if not isinstance(snapshot, dict):
             return cls()
-        messages = snapshot.get("messages")
-        turn_metadata = snapshot.get("turn_metadata")
+        messages = normalize_messages(snapshot.get("messages"))
+        turn_metadata = normalize_turn_metadata(snapshot.get("turn_metadata"))
         return cls(
-            messages=copy.deepcopy(messages) if isinstance(messages, list) else [],
-            turn_metadata=copy.deepcopy(turn_metadata) if isinstance(turn_metadata, list) else [],
+            messages=copy.deepcopy(messages),
+            turn_metadata=copy.deepcopy(turn_metadata),
         )
 
     def clear(self) -> None:

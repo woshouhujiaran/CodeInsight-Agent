@@ -59,6 +59,7 @@ class FakeAgent:
         max_turns: int = 8,
         workspace_root: str | None = None,
         persist_memory: bool = True,
+        cancel_event: Any | None = None,
     ) -> AgenticTurnResult:
         self.recorded_prompts.append(user_query)
         if not self.turns:
@@ -88,3 +89,13 @@ class FakeAgentFactory:
         agent = FakeAgent(memory=memory, turns=list(self.turns))
         self.created_agents.append(agent)
         return agent
+
+
+@dataclass
+class FakeLLM:
+    answer: str
+    calls: list[dict[str, str | None]] = field(default_factory=list)
+
+    def generate_text(self, prompt: str, system_prompt: str | None = None) -> str:
+        self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        return self.answer

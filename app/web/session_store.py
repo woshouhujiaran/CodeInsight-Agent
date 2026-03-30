@@ -8,6 +8,15 @@ import tempfile
 from typing import Any
 from uuid import uuid4
 
+from app.contracts import (
+    SessionSettingsModel,
+    SessionSnapshotModel as SessionSnapshotRecord,
+    dump_model,
+    normalize_messages,
+    normalize_test_summary,
+    normalize_turn_metadata,
+)
+
 SESSION_SCHEMA_VERSION = 1
 
 
@@ -27,13 +36,7 @@ def derive_session_title(messages: list[dict[str, Any]]) -> str:
 
 
 def default_session_settings() -> dict[str, Any]:
-    return {
-        "allow_write": False,
-        "allow_shell": False,
-        "test_command": "",
-        "auto_run_tests": False,
-        "max_turns": 8,
-    }
+    return dump_model(SessionSettingsModel())
 
 
 def normalize_session_settings(settings: dict[str, Any] | None) -> dict[str, Any]:
@@ -53,29 +56,31 @@ def normalize_session_settings(settings: dict[str, Any] | None) -> dict[str, Any
             merged["max_turns"] = max(1, int(settings.get("max_turns") or 8))
         except (TypeError, ValueError):
             merged["max_turns"] = 8
-    return merged
+    return dump_model(SessionSettingsModel(**merged))
 
 
 def coerce_session_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
     created_at = str(snapshot.get("created_at") or utc_now_iso())
     updated_at = str(snapshot.get("updated_at") or created_at)
-    messages = snapshot.get("messages")
-    turn_metadata = snapshot.get("turn_metadata")
+    messages = normalize_messages(snapshot.get("messages"))
+    turn_metadata = normalize_turn_metadata(snapshot.get("turn_metadata"))
     tasks = snapshot.get("tasks")
     settings = normalize_session_settings(snapshot.get("settings"))
-    normalized = {
-        "schema_version": int(snapshot.get("schema_version") or SESSION_SCHEMA_VERSION),
-        "session_id": str(snapshot.get("session_id") or uuid4().hex),
-        "title": str(snapshot.get("title") or derive_session_title(messages if isinstance(messages, list) else [])),
-        "created_at": created_at,
-        "updated_at": updated_at,
-        "workspace_root": str(snapshot.get("workspace_root") or ""),
-        "messages": messages if isinstance(messages, list) else [],
-        "turn_metadata": turn_metadata if isinstance(turn_metadata, list) else [],
-        "tasks": tasks if isinstance(tasks, list) else [],
-        "last_test_summary": snapshot.get("last_test_summary"),
-        "settings": settings,
-    }
+    normalized = dump_model(
+        SessionSnapshotRecord(
+            schema_version=int(snapshot.get("schema_version") or SESSION_SCHEMA_VERSION),
+            session_id=str(snapshot.get("session_id") or uuid4().hex),
+            title=str(snapshot.get("title") or derive_session_title(messages)),
+            created_at=created_at,
+            updated_at=updated_at,
+            workspace_root=str(snapshot.get("workspace_root") or ""),
+            messages=messages,
+            turn_metadata=turn_metadata,
+            tasks=tasks if isinstance(tasks, list) else [],
+            last_test_summary=normalize_test_summary(snapshot.get("last_test_summary")),
+            settings=settings,
+        )
+    )
     if not normalized["title"]:
         normalized["title"] = derive_session_title(normalized["messages"])
     return normalized

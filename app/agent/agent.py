@@ -185,6 +185,7 @@ class CodeAgent:
         max_turns: int = 8,
         workspace_root: str | None = None,
         persist_memory: bool = True,
+        cancel_event: Any | None = None,
     ) -> AgenticTurnResult:
         """
         Multi-turn tool loop: each LLM step returns JSON either final answer or tool_calls.
@@ -245,6 +246,9 @@ class CodeAgent:
         max_turns = max(1, int(max_turns))
 
         for _ in range(max_turns):
+            if cancel_event is not None and cancel_event.is_set():
+                answer = answer or "请求已取消。"
+                break
             decision = self.llm.generate_agentic_json_turn(transcript, system_prompt=system_prompt)
             transcript.append({"role": "assistant", "content": json.dumps(decision, ensure_ascii=False)})
 
@@ -262,7 +266,7 @@ class CodeAgent:
                         }
                     )
                     continue
-                batch = self.executor.execute_agentic_calls(calls)
+                batch = self.executor.execute_agentic_calls(calls, cancel_event=cancel_event)
                 tool_trace.extend(batch)
                 transcript.append({"role": "user", "content": self._format_agentic_tool_feedback(batch)})
                 continue
@@ -272,7 +276,7 @@ class CodeAgent:
         else:
             answer = answer or "已达到最大对话轮次仍未给出最终回答（type=final）。"
 
-        if persist_memory:
+        if persist_memory and not (cancel_event is not None and cancel_event.is_set()):
             self.memory.add_user_message(user_query)
             self.memory.add_assistant_message(answer)
             self.memory.add_turn_metadata(

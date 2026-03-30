@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+from threading import Event
+import time
+
+import pytest
 
 from app.web.service import WebAgentService
 from app.web.session_store import SessionStore
-from tests.web_test_utils import FakeAgentFactory, build_turn
+from tests.web_test_utils import FakeAgentFactory, FakeLLM, FakePlanner, build_turn
 
 
 def test_web_service_restores_memory_snapshot(tmp_path: Path) -> None:
@@ -116,6 +120,45 @@ def test_web_service_skips_auto_tests_without_successful_write(tmp_path: Path) -
     assert result["last_test_summary"] is None
 
 
+def test_web_service_qa_mode_allows_empty_workspace_and_skips_agent_factory(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root="")
+    fake_llm = FakeLLM(
+        answer="二分查找每次把区间减半，时间复杂度是 O(log n)。下面是示例代码，不会自动写入本地文件。"
+    )
+    factory = FakeAgentFactory(turns=[build_turn("不应被调用")])
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(session["session_id"], "解释一下二分查找，并给一个 Python 示例")
+
+    assert result["assistant"] == fake_llm.answer
+    assert result["task_results"] == []
+    assert result["session"]["workspace_root"] == ""
+    assert result["session"]["tasks"] == []
+    assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
+    assert result["session"]["turn_metadata"][-1]["tool_results"] == []
+    assert factory.created_agents == []
+    assert fake_llm.calls
+    assert "不会自动写入任何本地文件" in fake_llm.calls[0]["prompt"]
+
+
+def test_web_service_agentic_mode_requires_workspace(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root="")
+    factory = FakeAgentFactory(turns=[build_turn("不应被调用")])
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    with pytest.raises(ValueError, match="workspace_root"):
+        service.chat(session["session_id"], "在这个项目里修复登录 bug")
+
+    assert factory.created_agents == []
+
+
 def test_web_service_stream_emits_session_with_current_user_message(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root=str(tmp_path))
@@ -144,3 +187,65 @@ def test_web_service_can_delete_session(tmp_path: Path) -> None:
 
     assert result == {"deleted": True, "session_id": session["session_id"]}
     assert store.list_sessions() == []
+
+
+class _SlowCancellableAgent:
+    def __init__(self) -> None:
+        self.planner = FakePlanner()
+        self.started = Event()
+        self.cancelled = Event()
+
+    def run_agentic(
+        self,
+        user_query: str,
+        *,
+        max_turns: int = 8,
+        workspace_root: str | None = None,
+        persist_memory: bool = True,
+        cancel_event: Event | None = None,
+    ):
+        self.started.set()
+        while cancel_event is None or not cancel_event.is_set():
+            time.sleep(0.05)
+        self.cancelled.set()
+        return build_turn("cancelled")
+
+
+class _SlowAgentFactory:
+    def __init__(self) -> None:
+        self.agent = _SlowCancellableAgent()
+
+    def __call__(
+        self,
+        workspace_root: str,
+        *,
+        memory: object | None = None,
+        top_k: int = 5,
+        force_reindex: bool = False,
+        allow_write: bool = False,
+        allow_shell: bool = False,
+        index_dir: object | None = None,
+    ) -> _SlowCancellableAgent:
+        return self.agent
+
+
+def test_web_service_stream_close_cancels_background_turn(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(tmp_path))
+    factory = _SlowAgentFactory()
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    events = service.stream_chat(session["session_id"], "在这个项目里修复登录 bug")
+    assert next(events)["event"] == "mode"
+    assert next(events)["event"] == "session"
+    assert next(events)["event"] == "task_board"
+    assert next(events)["event"] == "task_update"
+    assert factory.agent.started.wait(timeout=1.0) is True
+
+    events.close()
+
+    deadline = time.time() + 2.0
+    while time.time() < deadline and not factory.agent.cancelled.is_set():
+        time.sleep(0.05)
+
+    assert factory.agent.cancelled.is_set() is True

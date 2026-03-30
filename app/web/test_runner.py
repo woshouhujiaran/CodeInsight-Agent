@@ -32,14 +32,19 @@ def build_test_summary(
     stderr: str,
     duration_ms: int,
     timed_out: bool,
+    cancelled: bool,
 ) -> dict[str, Any]:
     combined = ((stdout or "") + "\n" + (stderr or "")).strip()
     raw_tail = combined[-4000:] if combined else ""
-    if timed_out and raw_tail:
+    if cancelled and raw_tail:
+        raw_tail = raw_tail + "\n[cancelled]"
+    elif cancelled:
+        raw_tail = "[cancelled]"
+    elif timed_out and raw_tail:
         raw_tail = raw_tail + "\n[timeout]"
     elif timed_out:
         raw_tail = "[timeout]"
-    passed = (returncode == 0) and not timed_out
+    passed = (returncode == 0) and not timed_out and not cancelled
     return {
         "passed": passed,
         "failed": not passed,
@@ -48,6 +53,7 @@ def build_test_summary(
         "raw_tail": raw_tail,
         "returncode": returncode,
         "timed_out": timed_out,
+        "cancelled": cancelled,
     }
 
 
@@ -80,4 +86,5 @@ def run_project_test_command(
         stderr=str(result.get("stderr") or ""),
         duration_ms=duration_ms,
         timed_out=bool(result.get("timed_out")),
+        cancelled=bool(result.get("cancelled")),
     )
