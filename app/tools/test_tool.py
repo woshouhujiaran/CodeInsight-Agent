@@ -14,8 +14,72 @@ from app.tools.base_tool import BaseTool, make_tool_result
 from app.utils.logger import get_logger
 
 _PREVIEW_MAX = 2000
-_BANNED_IMPORT_ROOTS = frozenset({"os", "subprocess", "socket", "requests"})
-_BANNED_CALL_NAMES = frozenset({"open", "exec", "eval", "__import__"})
+_BANNED_IMPORT_ROOTS = frozenset(
+    {
+        "builtins",
+        "importlib",
+        "os",
+        "pathlib",
+        "requests",
+        "shutil",
+        "socket",
+        "subprocess",
+        "tempfile",
+        "urllib",
+    }
+)
+_BANNED_CALL_NAMES = frozenset({"__import__", "compile", "eval", "exec", "open"})
+_BANNED_CALL_ATTRS = frozenset(
+    {
+        "Popen",
+        "call",
+        "check_call",
+        "check_output",
+        "copy",
+        "copy2",
+        "copyfile",
+        "getoutput",
+        "getstatusoutput",
+        "hardlink_to",
+        "import_module",
+        "load_module",
+        "move",
+        "open",
+        "popen",
+        "read_bytes",
+        "read_text",
+        "rename",
+        "replace",
+        "request",
+        "rmdir",
+        "run",
+        "symlink_to",
+        "system",
+        "touch",
+        "unlink",
+        "urlopen",
+        "urlretrieve",
+        "write_bytes",
+        "write_text",
+    }
+)
+_BANNED_ATTRIBUTE_NAMES = frozenset(
+    {
+        "__bases__",
+        "__builtins__",
+        "__class__",
+        "__closure__",
+        "__code__",
+        "__dict__",
+        "__getattribute__",
+        "__globals__",
+        "__loader__",
+        "__mro__",
+        "__spec__",
+        "__subclasses__",
+    }
+)
+_BANNED_NAME_ACCESSES = frozenset({"__builtins__"})
 
 
 def _truncate(text: str, max_len: int = _PREVIEW_MAX) -> str:
@@ -62,6 +126,10 @@ def _resolve_symbol_name(node: ast.AST, aliases: dict[str, str]) -> str:
     return ""
 
 
+def _reject(reason: str, detail: str) -> str:
+    return f"{reason}: {detail}"
+
+
 def _static_test_code_review(code: str) -> str | None:
     try:
         tree = ast.parse(code)
@@ -85,6 +153,15 @@ def _static_test_code_review(code: str) -> str | None:
                 symbol = alias.name
                 full_name = f"{module}.{symbol}" if module else symbol
                 aliases[alias.asname or symbol] = full_name
+        elif isinstance(node, ast.Name):
+            if node.id in _BANNED_NAME_ACCESSES:
+                return _reject("Unsafe global access is not allowed in generated tests", node.id)
+        elif isinstance(node, ast.Attribute):
+            if node.attr in _BANNED_ATTRIBUTE_NAMES:
+                return _reject("Unsafe attribute access is not allowed in generated tests", node.attr)
+            attribute_name = _resolve_symbol_name(node, aliases)
+            if attribute_name.split(".")[0] in _BANNED_IMPORT_ROOTS:
+                return _reject("Unsafe attribute access is not allowed in generated tests", attribute_name)
         elif isinstance(node, ast.Call):
             called_name = _resolve_symbol_name(node.func, aliases)
             root = called_name.split(".")[0]
@@ -92,6 +169,9 @@ def _static_test_code_review(code: str) -> str | None:
                 return f"Unsafe call is not allowed in generated tests: {called_name}"
             if root in _BANNED_IMPORT_ROOTS:
                 return f"Unsafe call is not allowed in generated tests: {called_name}"
+            attr_name = node.func.attr if isinstance(node.func, ast.Attribute) else ""
+            if attr_name in _BANNED_CALL_ATTRS:
+                return _reject("Unsafe call is not allowed in generated tests", attr_name)
             if called_name.endswith(".open"):
                 return f"Unsafe call is not allowed in generated tests: {called_name}"
     return None

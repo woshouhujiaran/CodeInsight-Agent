@@ -22,7 +22,7 @@ class StreamWorker:
                 try:
                     self._worker(cancel_event, queue.put)
                 except StreamCancelled:
-                    pass
+                    queue.put({"event": "error", "data": {"message": "\u5df2\u53d6\u6d88"}})
                 except Exception as exc:  # noqa: BLE001
                     queue.put({"event": "error", "data": {"message": str(exc)}})
                 finally:

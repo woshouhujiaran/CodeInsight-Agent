@@ -9,6 +9,7 @@ import pytest
 
 from app.web.service import WebAgentService
 from app.web.session_store import SessionStore
+from app.web.chat_components import StreamCancelled
 from tests.web_test_utils import FakeAgentFactory, FakeLLM, FakePlanner, build_turn
 
 
@@ -229,6 +230,37 @@ class _SlowAgentFactory:
         return self.agent
 
 
+class _CancellingAgent:
+    def __init__(self) -> None:
+        self.planner = FakePlanner()
+
+    def run_agentic(
+        self,
+        user_query: str,
+        *,
+        max_turns: int = 8,
+        workspace_root: str | None = None,
+        persist_memory: bool = True,
+        cancel_event: Event | None = None,
+    ):
+        raise StreamCancelled("stream cancelled")
+
+
+class _CancellingAgentFactory:
+    def __call__(
+        self,
+        workspace_root: str,
+        *,
+        memory: object | None = None,
+        top_k: int = 5,
+        force_reindex: bool = False,
+        allow_write: bool = False,
+        allow_shell: bool = False,
+        index_dir: object | None = None,
+    ) -> _CancellingAgent:
+        return _CancellingAgent()
+
+
 def test_web_service_stream_close_cancels_background_turn(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root=str(tmp_path))
@@ -249,3 +281,19 @@ def test_web_service_stream_close_cancels_background_turn(tmp_path: Path) -> Non
         time.sleep(0.05)
 
     assert factory.agent.cancelled.is_set() is True
+
+
+def test_web_service_stream_emits_cancel_error_event(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(tmp_path))
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=_CancellingAgentFactory(),
+        repo_root=tmp_path,
+    )
+
+    events = list(service.stream_chat(session["session_id"], "\u5728\u8fd9\u4e2a\u9879\u76ee\u91cc\u4fee\u590d bug"))
+
+    assert any(item["event"] == "task_update" for item in events)
+    assert events[-1] == {"event": "error", "data": {"message": "\u5df2\u53d6\u6d88"}}
+    assert all(item["event"] != "assistant_final" for item in events)

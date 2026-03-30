@@ -11,13 +11,41 @@ class _FakeStore:
         return []
 
 
+def test_create_llm_from_env_reuses_cached_client(monkeypatch) -> None:
+    llm_calls: list[tuple[str, str]] = []
+
+    class FakeLLMClient:
+        def __init__(self, *, model: str, provider: str) -> None:
+            llm_calls.append((provider, model))
+            self.model = model
+            self.provider = provider
+
+    runtime.reset_runtime_caches()
+    monkeypatch.setattr(runtime, "LLMClient", FakeLLMClient)
+    monkeypatch.setenv("LLM_PROVIDER", "fake-provider")
+    monkeypatch.setenv("LLM_MODEL", "fake-model")
+
+    first = runtime.create_llm_from_env()
+    second = runtime.create_llm_from_env()
+
+    assert first is second
+    assert llm_calls == [("fake-provider", "fake-model")]
+
+
 def test_create_agent_reuses_cached_runtime_resources(tmp_path: Path, monkeypatch) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     (workspace / "a.py").write_text("x = 1\n", encoding="utf-8")
 
+    llm_calls: list[tuple[str, str]] = []
     embedding_calls: list[int] = []
     vector_store_calls: list[tuple[str, str, bool]] = []
+
+    class FakeLLMClient:
+        def __init__(self, *, model: str, provider: str) -> None:
+            llm_calls.append((provider, model))
+            self.model = model
+            self.provider = provider
 
     def fake_create_embedding_backend() -> HashEmbedding:
         embedding_calls.append(1)
@@ -34,6 +62,7 @@ def test_create_agent_reuses_cached_runtime_resources(tmp_path: Path, monkeypatc
         return _FakeStore(), {"status": "built", "index_dir": str(index_dir), "snapshot": "snap"}
 
     runtime.reset_runtime_caches()
+    monkeypatch.setattr(runtime, "LLMClient", FakeLLMClient)
     monkeypatch.setattr(runtime, "create_embedding_backend", fake_create_embedding_backend)
     monkeypatch.setattr(runtime, "load_or_build_vector_store", fake_load_or_build_vector_store)
 
@@ -41,6 +70,7 @@ def test_create_agent_reuses_cached_runtime_resources(tmp_path: Path, monkeypatc
     second = runtime.create_agent_from_env(str(workspace))
 
     assert first.llm is second.llm
+    assert len(llm_calls) == 1
     assert len(embedding_calls) == 1
     assert len(vector_store_calls) == 1
 

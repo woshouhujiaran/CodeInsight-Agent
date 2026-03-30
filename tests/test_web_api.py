@@ -5,9 +5,10 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.web.main import create_app
+from app.web.chat_components import StreamCancelled
 from app.web.service import WebAgentService
 from app.web.session_store import SessionStore
-from tests.web_test_utils import FakeAgentFactory, FakeLLM, build_turn
+from tests.web_test_utils import FakeAgentFactory, FakeLLM, FakePlanner, build_turn
 
 
 def _client(
@@ -34,6 +35,37 @@ def _client(
     service = WebAgentService(**kwargs)
     client = TestClient(create_app(service))
     return client, store
+
+
+class _CancellingAgent:
+    def __init__(self) -> None:
+        self.planner = FakePlanner()
+
+    def run_agentic(
+        self,
+        user_query: str,
+        *,
+        max_turns: int = 8,
+        workspace_root: str | None = None,
+        persist_memory: bool = True,
+        cancel_event: object | None = None,
+    ):
+        raise StreamCancelled("stream cancelled")
+
+
+class _CancellingAgentFactory:
+    def __call__(
+        self,
+        workspace_root: str,
+        *,
+        memory: object | None = None,
+        top_k: int = 5,
+        force_reindex: bool = False,
+        allow_write: bool = False,
+        allow_shell: bool = False,
+        index_dir: object | None = None,
+    ) -> _CancellingAgent:
+        return _CancellingAgent()
 
 
 def test_web_api_session_crud(tmp_path: Path) -> None:
@@ -166,3 +198,23 @@ def test_web_api_qa_stream_does_not_emit_task_board(tmp_path: Path) -> None:
 
     assert "event: assistant_final" in text
     assert "event: task_board" not in text
+
+
+def test_web_api_sse_stream_emits_cancel_error(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    client, _store = _client(tmp_path, agent_factory=_CancellingAgentFactory())
+    created = client.post("/sessions", json={"workspace_root": str(workspace), "settings": {}})
+    session_id = created.json()["session_id"]
+
+    with client.stream(
+        "POST",
+        f"/sessions/{session_id}/messages?stream=1",
+        json={"content": "\u8bf7\u5206\u6790\u5e76\u4fee\u590d"},
+    ) as response:
+        assert response.status_code == 200
+        text = "".join(chunk for chunk in response.iter_text())
+
+    assert "event: error" in text
+    assert "\u5df2\u53d6\u6d88" in text
+    assert "event: assistant_final" not in text

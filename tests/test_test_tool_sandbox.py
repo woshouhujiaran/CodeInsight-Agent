@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+from typing import Any
 
 from app.llm.llm import LLMClient
 from app.sandbox.runner import SandboxRunner, hardened_pytest_env
@@ -119,6 +120,86 @@ def test_test_tool_rejects_malicious_generated_code(tmp_path: Path) -> None:
     assert out.get("meta", {}).get("static_review_rejected") is True
     assert data["sandbox"]["verdict"] == "rejected"
     assert marker.exists() is False
+
+
+def test_test_tool_rejects_dynamic_import_before_sandbox_execution(tmp_path: Path, monkeypatch) -> None:
+    called: list[bool] = []
+
+    def fail_if_executed(self: SandboxRunner, test_code: str, filename_prefix: str = "generated_test") -> Any:
+        called.append(True)
+        raise AssertionError("sandbox should not execute rejected test code")
+
+    monkeypatch.setattr(SandboxRunner, "run_test_code", fail_if_executed)
+    tool = _tool_with_fixed_response(
+        {
+            "coverage_focus": ["core"],
+            "test_code": (
+                "import importlib\n\n"
+                "def test_dynamic_import():\n"
+                "    module = importlib.import_module('math')\n"
+                "    assert module.sqrt(4) == 2\n"
+            ),
+        },
+        tmp_path,
+    )
+
+    out = tool.run("ignored")
+
+    assert out["status"] == "error"
+    assert out.get("meta", {}).get("static_review_rejected") is True
+    assert out["data"]["sandbox"]["verdict"] == "rejected"
+    assert called == []
+
+
+def test_test_tool_rejects_dangerous_attribute_access(tmp_path: Path, monkeypatch) -> None:
+    called: list[bool] = []
+
+    def fail_if_executed(self: SandboxRunner, test_code: str, filename_prefix: str = "generated_test") -> Any:
+        called.append(True)
+        raise AssertionError("sandbox should not execute rejected test code")
+
+    monkeypatch.setattr(SandboxRunner, "run_test_code", fail_if_executed)
+    tool = _tool_with_fixed_response(
+        {
+            "coverage_focus": ["core"],
+            "test_code": (
+                "def test_object_graph_escape():\n"
+                "    assert object.__subclasses__()\n"
+            ),
+        },
+        tmp_path,
+    )
+
+    out = tool.run("ignored")
+
+    assert out["status"] == "error"
+    assert out.get("meta", {}).get("static_review_rejected") is True
+    assert out["data"]["sandbox"]["verdict"] == "rejected"
+    assert called == []
+
+
+def test_test_tool_allows_safe_pytest_patterns(tmp_path: Path) -> None:
+    tool = _tool_with_fixed_response(
+        {
+            "coverage_focus": ["core", "edge"],
+            "test_code": (
+                "import pytest\n\n"
+                "@pytest.mark.parametrize(('value', 'expected'), [(2, 4), (3, 9)])\n"
+                "def test_square(value, expected):\n"
+                "    assert value * value == expected\n\n"
+                "def test_error_path():\n"
+                "    with pytest.raises(ZeroDivisionError):\n"
+                "        _ = 1 / 0\n"
+            ),
+        },
+        tmp_path,
+    )
+
+    out = tool.run("ignored")
+
+    assert out["status"] == "ok"
+    assert out["data"]["sandbox"]["verdict"] == "passed"
+    assert out.get("meta", {}).get("static_review_rejected") is not True
 
 
 def test_hardened_pytest_env_disables_plugin_autoload() -> None:

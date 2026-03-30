@@ -190,6 +190,11 @@
       cursor: pointer;
     }
 
+    button:disabled {
+      opacity: 0.55;
+      cursor: not-allowed;
+    }
+
     button.secondary {
       background: rgba(255,255,255,0.78);
       color: var(--text);
@@ -302,7 +307,7 @@
         <div class="card">
           <h3>环境开关</h3>
           <div class="mono" style="margin-bottom: 8px;">工作区根目录</div>
-          <input id="workspaceInput" type="text" value="" placeholder="QA 模式可留空；任务模式再填写真实项目目录" />
+          <input id="workspaceInput" type="text" value="" placeholder="QA 模式可留空；任务模式请填写真实项目目录" />
           <div class="toggle">
             <span>允许写盘</span>
             <input id="allowWriteInput" type="checkbox" />
@@ -350,6 +355,8 @@
       sessions: [],
       currentSession: null,
       streamController: null,
+      streamStopRequested: false,
+      streamTerminalStatus: "",
       pendingAssistantEl: null,
       pendingAssistantText: "",
     };
@@ -361,9 +368,34 @@
     const evalSummaryEl = document.getElementById("evalSummary");
     const chatMetaEl = document.getElementById("chatMeta");
     const statusBarEl = document.getElementById("statusBar");
+    const sendBtnEl = document.getElementById("sendBtn");
+    const stopBtnEl = document.getElementById("stopBtn");
+    const runTestsBtnEl = document.getElementById("runTestsBtn");
+    const saveSettingsBtnEl = document.getElementById("saveSettingsBtn");
+    const newSessionBtnEl = document.getElementById("newSessionBtn");
+    const deleteSessionBtnEl = document.getElementById("deleteSessionBtn");
+    const messageInputEl = document.getElementById("messageInput");
 
     function setStatus(text) {
       statusBarEl.textContent = text || "";
+    }
+
+    function setStreamingControls(streaming) {
+      const busy = !!streaming;
+      sendBtnEl.disabled = busy;
+      runTestsBtnEl.disabled = busy;
+      saveSettingsBtnEl.disabled = busy;
+      newSessionBtnEl.disabled = busy;
+      deleteSessionBtnEl.disabled = busy;
+      messageInputEl.disabled = busy;
+      stopBtnEl.disabled = !busy;
+    }
+
+    function setStreamTerminalStatus(text) {
+      state.streamTerminalStatus = text || "";
+      if (state.streamTerminalStatus) {
+        setStatus(state.streamTerminalStatus);
+      }
     }
 
     function escapeHtml(text) {
@@ -404,19 +436,19 @@
           <div class="session-card ${active}" data-session-id="${session.session_id}">
             <div class="session-title">${escapeHtml(session.title)}</div>
             <div class="session-meta">${escapeHtml(session.updated_at)}</div>
-            <div class="session-meta">${escapeHtml(session.workspace_root || "QA / 未设置工作区")}</div>
+            <div class="session-meta">${escapeHtml(session.workspace_root || "QA / 未配置工作区")}</div>
           </div>
         `;
       }).join("");
       sessionListEl.querySelectorAll(".session-card").forEach((el) => {
-        el.addEventListener("click", () => loadSession(el.dataset.sessionId));
+        el.addEventListener("click", () => loadSession(el.dataset.sessionId).catch((err) => setStatus(err.message)));
       });
     }
 
     function renderMessages(session) {
       const messages = session?.messages || [];
       if (!messages.length) {
-        messagesEl.innerHTML = '';
+        messagesEl.innerHTML = "";
         if (!state.pendingAssistantEl) {
           messagesEl.innerHTML = '<div class="empty">开始一轮多步对话后，消息会出现在这里。</div>';
         }
@@ -440,13 +472,16 @@
         taskBoardEl.innerHTML = '<div class="empty">暂无任务</div>';
         return;
       }
-      taskBoardEl.innerHTML = tasks.map((task) => `
-        <div class="task-item">
-          <div class="task-title">${escapeHtml(task.title)}</div>
-          <div class="task-status">状态：${escapeHtml(task.status)} | 依赖：${escapeHtml((task.depends_on || []).join(", ") || "无")}</div>
-          <div class="task-summary">${escapeHtml(task.summary || task.description)}</div>
-        </div>
-      `).join("");
+      taskBoardEl.innerHTML = tasks.map((task) => {
+        const dependsText = escapeHtml((task.depends_on || []).join(", ") || "无");
+        return `
+          <div class="task-item">
+            <div class="task-title">${escapeHtml(task.title)}</div>
+            <div class="task-status">状态：${escapeHtml(task.status)} | 依赖：${dependsText}</div>
+            <div class="task-summary">${escapeHtml(task.summary || task.description)}</div>
+          </div>
+        `;
+      }).join("");
     }
 
     function renderTestSummary(summary) {
@@ -454,8 +489,9 @@
         testSummaryEl.innerHTML = '<div class="empty">尚未运行测试</div>';
         return;
       }
+      const title = summary.cancelled ? "已取消" : (summary.passed ? "通过" : "失败");
       testSummaryEl.innerHTML = `
-        <div class="task-title">${summary.passed ? "通过" : "失败"}</div>
+        <div class="task-title">${title}</div>
         <div class="task-status">耗时：${summary.duration_ms} ms</div>
         <div class="task-status">命令：${escapeHtml(summary.command || "")}</div>
         <div class="task-summary">${escapeHtml(summary.raw_tail || "")}</div>
@@ -481,7 +517,7 @@
         chatMetaEl.textContent = "尚未选择会话";
         return;
       }
-      chatMetaEl.textContent = `${state.currentSession.title} | ${state.currentSession.workspace_root || "QA / 未设置工作区"}`;
+      chatMetaEl.textContent = `${state.currentSession.title} | ${state.currentSession.workspace_root || "QA / 未配置工作区"}`;
     }
 
     async function fetchJson(url, options = {}) {
@@ -502,6 +538,10 @@
     }
 
     async function loadSession(sessionId) {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
       state.currentSession = await fetchJson(`/sessions/${sessionId}`);
       applySessionToControls(state.currentSession);
       renderMessages(state.currentSession);
@@ -512,6 +552,10 @@
     }
 
     async function createSession() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
       const payload = {
         workspace_root: document.getElementById("workspaceInput").value.trim(),
         settings: sessionSettings(),
@@ -526,6 +570,10 @@
     }
 
     async function saveSettings() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
       if (!state.currentSession) {
         setStatus("请先创建或选择会话。");
         return;
@@ -573,6 +621,93 @@
       state.pendingAssistantEl = null;
     }
 
+    function parseSseEventBlock(block) {
+      let eventName = "message";
+      const dataLines = [];
+
+      for (const rawLine of block.split("\n")) {
+        const line = rawLine.replace(/\r$/, "");
+        if (!line || line.startsWith(":")) {
+          continue;
+        }
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim() || "message";
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          let value = line.slice(5);
+          if (value.startsWith(" ")) {
+            value = value.slice(1);
+          }
+          dataLines.push(value);
+        }
+      }
+
+      if (!dataLines.length) {
+        return null;
+      }
+
+      return {
+        eventName,
+        data: dataLines.join("\n"),
+      };
+    }
+
+    function drainSseBuffer(buffer, flush = false) {
+      let remaining = buffer.replace(/\r\n/g, "\n");
+      const blocks = [];
+
+      while (true) {
+        const boundary = remaining.indexOf("\n\n");
+        if (boundary === -1) {
+          break;
+        }
+        const block = remaining.slice(0, boundary);
+        remaining = remaining.slice(boundary + 2);
+        if (block.trim()) {
+          blocks.push(block);
+        }
+      }
+
+      if (flush && remaining.trim()) {
+        blocks.push(remaining);
+        remaining = "";
+      }
+
+      return { blocks, buffer: remaining };
+    }
+
+    function processSseEventBlock(block) {
+      const parsed = parseSseEventBlock(block);
+      if (!parsed) {
+        return;
+      }
+
+      let payload;
+      try {
+        payload = JSON.parse(parsed.data);
+      } catch (error) {
+        throw new Error("流式事件解析失败。");
+      }
+
+      handleStreamEvent(parsed.eventName, payload);
+    }
+
+    function finalizeStream(fallbackStatus) {
+      const terminalStatus = state.streamTerminalStatus || fallbackStatus || "";
+      clearPendingAssistant();
+      if (state.currentSession) {
+        renderMessages(state.currentSession);
+      }
+      state.streamController = null;
+      state.streamStopRequested = false;
+      state.streamTerminalStatus = "";
+      setStreamingControls(false);
+      if (terminalStatus) {
+        setStatus(terminalStatus);
+      }
+    }
+
     function handleStreamEvent(eventName, data) {
       if (eventName === "session") {
         state.currentSession = data;
@@ -583,6 +718,7 @@
         refreshSessions().catch((err) => setStatus(err.message));
         return;
       }
+
       if (eventName === "task_board") {
         if (state.currentSession) {
           state.currentSession.tasks = data;
@@ -590,8 +726,11 @@
         renderTasks(data);
         return;
       }
+
       if (eventName === "task_update") {
-        if (!state.currentSession) return;
+        if (!state.currentSession) {
+          return;
+        }
         const tasks = state.currentSession.tasks || [];
         const taskId = data.task_id || data.id;
         const next = tasks.map((task) => (task.id === taskId ? { ...task, ...data, id: task.id } : task));
@@ -600,6 +739,7 @@
         renderTasks(state.currentSession.tasks);
         return;
       }
+
       if (eventName === "assistant_delta") {
         state.pendingAssistantText += data.content || "";
         if (state.pendingAssistantEl) {
@@ -609,6 +749,7 @@
         }
         return;
       }
+
       if (eventName === "assistant_final") {
         if (state.pendingAssistantEl) {
           state.pendingAssistantEl.classList.remove("loading");
@@ -616,27 +757,38 @@
         }
         return;
       }
+
       if (eventName === "test_summary") {
         renderTestSummary(data);
         return;
       }
+
       if (eventName === "error") {
-        setStatus(data.message || "流式执行失败。");
+        clearPendingAssistant();
+        if (state.currentSession) {
+          renderMessages(state.currentSession);
+        }
+        setStreamTerminalStatus(data.message || "流式执行失败。");
       }
     }
 
     async function sendMessage() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
       if (!state.currentSession) {
         setStatus("请先创建或选择会话。");
         return;
       }
-      const input = document.getElementById("messageInput");
-      const content = input.value.trim();
+
+      const content = messageInputEl.value.trim();
       if (!content) {
         setStatus("请输入消息。");
         return;
       }
-      input.value = "";
+
+      messageInputEl.value = "";
       setStatus("保存设置并开始执行...");
       try {
         await persistCurrentControls({ silent: true });
@@ -644,12 +796,17 @@
         setStatus(error.message || "设置保存失败。");
         return;
       }
+
       setStatus("进行中...");
       state.currentSession.messages = [...(state.currentSession.messages || []), { role: "user", content }];
       renderMessages(state.currentSession);
       appendPendingAssistant();
 
       state.streamController = new AbortController();
+      state.streamStopRequested = false;
+      state.streamTerminalStatus = "";
+      setStreamingControls(true);
+
       try {
         const response = await fetch(`/sessions/${state.currentSession.session_id}/messages?stream=1`, {
           method: "POST",
@@ -660,45 +817,46 @@
         if (!response.ok || !response.body) {
           throw new Error(`请求失败: ${response.status}`);
         }
+
         const reader = response.body.getReader();
         const decoder = new TextDecoder("utf-8");
         let buffer = "";
+
         while (true) {
           const { value, done } = await reader.read();
-          if (done) break;
+          if (done) {
+            break;
+          }
           buffer += decoder.decode(value, { stream: true });
-          const parts = buffer.split("\n\n");
-          buffer = parts.pop() || "";
-          for (const part of parts) {
-            const lines = part.split("\n");
-            let eventName = "message";
-            let data = "";
-            for (const line of lines) {
-              if (line.startsWith("event:")) eventName = line.slice(6).trim();
-              if (line.startsWith("data:")) data += line.slice(5).trim();
-            }
-            if (data) {
-              handleStreamEvent(eventName, JSON.parse(data));
-            }
+          const drained = drainSseBuffer(buffer);
+          buffer = drained.buffer;
+          for (const block of drained.blocks) {
+            processSseEventBlock(block);
           }
         }
-        setStatus("已完成。");
+
+        buffer += decoder.decode();
+        const flushed = drainSseBuffer(buffer, true);
+        for (const block of flushed.blocks) {
+          processSseEventBlock(block);
+        }
+
+        finalizeStream("已完成。");
       } catch (error) {
         if (error.name === "AbortError") {
-          setStatus("已停止本地流式读取，服务端任务可能仍在继续。");
+          setStreamTerminalStatus(state.streamTerminalStatus || (state.streamStopRequested ? "已取消" : "流式已中断。"));
         } else {
-          setStatus(error.message || "发送失败。");
+          setStreamTerminalStatus(error.message || "发送失败。");
         }
-      } finally {
-        clearPendingAssistant();
-        if (state.currentSession) {
-          renderMessages(state.currentSession);
-        }
-        state.streamController = null;
+        finalizeStream(state.streamTerminalStatus);
       }
     }
 
     async function runTests() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
       if (!state.currentSession) {
         setStatus("请先选择会话。");
         return;
@@ -720,6 +878,10 @@
     }
 
     async function deleteCurrentSession() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
       if (!state.currentSession) {
         setStatus("请先选择会话。");
         return;
@@ -748,14 +910,25 @@
       }
     }
 
-    document.getElementById("newSessionBtn").addEventListener("click", () => createSession().catch((err) => setStatus(err.message)));
-    document.getElementById("saveSettingsBtn").addEventListener("click", () => saveSettings().catch((err) => setStatus(err.message)));
-    document.getElementById("deleteSessionBtn").addEventListener("click", () => deleteCurrentSession());
-    document.getElementById("sendBtn").addEventListener("click", () => sendMessage());
-    document.getElementById("runTestsBtn").addEventListener("click", () => runTests());
-    document.getElementById("stopBtn").addEventListener("click", () => {
-      if (state.streamController) state.streamController.abort();
+    newSessionBtnEl.addEventListener("click", () => createSession().catch((err) => setStatus(err.message)));
+    saveSettingsBtnEl.addEventListener("click", () => saveSettings().catch((err) => setStatus(err.message)));
+    deleteSessionBtnEl.addEventListener("click", () => deleteCurrentSession());
+    sendBtnEl.addEventListener("click", () => sendMessage());
+    runTestsBtnEl.addEventListener("click", () => runTests());
+    stopBtnEl.addEventListener("click", () => {
+      if (!state.streamController) {
+        return;
+      }
+      state.streamStopRequested = true;
+      clearPendingAssistant();
+      if (state.currentSession) {
+        renderMessages(state.currentSession);
+      }
+      setStreamTerminalStatus("已取消");
+      state.streamController.abort();
     });
+
+    setStreamingControls(false);
 
     Promise.all([
       refreshSessions(),
