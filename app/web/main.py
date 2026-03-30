@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from contextlib import asynccontextmanager
 from pathlib import Path
 import json
 import os
 from typing import Any
 
+from app.utils.env_loader import load_env_file
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import HTMLResponse, StreamingResponse
 import uvicorn
@@ -33,8 +35,21 @@ def _sse_message(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _bootstrap_env() -> None:
+    """与 CLI 一致：从仓库根目录加载 .env，避免 Web 进程读不到 API Key。"""
+    repo_root = Path(__file__).resolve().parents[2]
+    load_env_file(str(repo_root / ".env"))
+    load_env_file(".env")
+
+
+@asynccontextmanager
+async def _app_lifespan(app: FastAPI):
+    _bootstrap_env()
+    yield
+
+
 def create_app(service: WebAgentService | None = None) -> FastAPI:
-    app = FastAPI(title="CodeInsight-Agent Web", version="1.0.0")
+    app = FastAPI(title="CodeInsight-Agent Web", version="1.0.0", lifespan=_app_lifespan)
     app.state.service = service or WebAgentService()
 
     @app.get("/", response_class=HTMLResponse)
@@ -125,6 +140,7 @@ app = create_app()
 
 
 def run() -> None:
+    _bootstrap_env()
     port = int(os.getenv("WEB_PORT", "8765"))
     uvicorn.run("app.web.main:app", host="127.0.0.1", port=port, reload=False)
 
