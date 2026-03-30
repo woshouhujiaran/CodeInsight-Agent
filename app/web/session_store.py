@@ -159,6 +159,12 @@ class SessionStore:
             snapshot["settings"] = normalize_session_settings(merged)
         return self.save_session(snapshot)
 
+    def delete_session(self, session_id: str) -> None:
+        path = self.session_path(session_id)
+        if not path.is_file():
+            raise KeyError(session_id)
+        path.unlink()
+
     def _atomic_write_json(self, path: Path, payload: dict[str, Any]) -> None:
         path.parent.mkdir(parents=True, exist_ok=True)
         fd, tmp_name = tempfile.mkstemp(prefix=".session_", dir=str(path.parent), text=False)

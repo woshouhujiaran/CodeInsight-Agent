@@ -77,6 +77,13 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
         except ValueError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
+    @app.delete("/sessions/{session_id}")
+    def delete_session(session_id: str) -> dict[str, Any]:
+        try:
+            return app.state.service.delete_session(session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="会话不存在。") from exc
+
     @app.post("/sessions/{session_id}/messages", response_model=ChatResponseModel)
     def post_message(
         session_id: str,

@@ -114,3 +114,33 @@ def test_web_service_skips_auto_tests_without_successful_write(tmp_path: Path) -
     result = service.chat(session["session_id"], "仅分析，不写入")
 
     assert result["last_test_summary"] is None
+
+
+def test_web_service_stream_emits_session_with_current_user_message(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(tmp_path))
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("已定位入口。"),
+            build_turn("给出补丁建议。"),
+            build_turn("验证完成。"),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    events = list(service.stream_chat(session["session_id"], "当前新消息"))
+
+    first_session = next(item for item in events if item["event"] == "session")
+    assert first_session["data"]["messages"][-1]["content"] == "当前新消息"
+    assert any(item["event"] == "assistant_delta" for item in events)
+
+
+def test_web_service_can_delete_session(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(tmp_path))
+    service = WebAgentService(session_store=store, repo_root=tmp_path)
+
+    result = service.delete_session(session["session_id"])
+
+    assert result == {"deleted": True, "session_id": session["session_id"]}
+    assert store.list_sessions() == []

@@ -272,7 +272,10 @@
     <section class="panel sidebar">
       <div class="panel-header">
         <div class="panel-title">会话列表</div>
-        <button id="newSessionBtn" class="secondary">新建会话</button>
+        <div class="row" style="flex: 0 0 auto;">
+          <button id="deleteSessionBtn" class="secondary">删除会话</button>
+          <button id="newSessionBtn" class="secondary">新建会话</button>
+        </div>
       </div>
       <div id="sessionList" class="session-list"></div>
     </section>
@@ -413,7 +416,14 @@
     function renderMessages(session) {
       const messages = session?.messages || [];
       if (!messages.length) {
-        messagesEl.innerHTML = '<div class="empty">开始一轮多步对话后，消息会出现在这里。</div>';
+        messagesEl.innerHTML = '';
+        if (!state.pendingAssistantEl) {
+          messagesEl.innerHTML = '<div class="empty">开始一轮多步对话后，消息会出现在这里。</div>';
+        }
+        if (state.pendingAssistantEl) {
+          messagesEl.appendChild(state.pendingAssistantEl);
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
         return;
       }
       messagesEl.innerHTML = messages.map((message) => `
@@ -520,6 +530,14 @@
         setStatus("请先创建或选择会话。");
         return;
       }
+      return persistCurrentControls();
+    }
+
+    async function persistCurrentControls(options = {}) {
+      const { silent = false } = options;
+      if (!state.currentSession) {
+        throw new Error("请先创建或选择会话。");
+      }
       const payload = {
         workspace_root: document.getElementById("workspaceInput").value.trim(),
         settings: sessionSettings(),
@@ -530,8 +548,12 @@
       });
       await refreshSessions();
       renderSessions();
+      renderTestSummary(state.currentSession.last_test_summary);
       updateMeta();
-      setStatus("设置已保存。");
+      if (!silent) {
+        setStatus("设置已保存。");
+      }
+      return state.currentSession;
     }
 
     function appendPendingAssistant() {
@@ -562,6 +584,9 @@
         return;
       }
       if (eventName === "task_board") {
+        if (state.currentSession) {
+          state.currentSession.tasks = data;
+        }
         renderTasks(data);
         return;
       }
@@ -612,6 +637,13 @@
         return;
       }
       input.value = "";
+      setStatus("保存设置并开始执行...");
+      try {
+        await persistCurrentControls({ silent: true });
+      } catch (error) {
+        setStatus(error.message || "设置保存失败。");
+        return;
+      }
       setStatus("进行中...");
       state.currentSession.messages = [...(state.currentSession.messages || []), { role: "user", content }];
       renderMessages(state.currentSession);
@@ -671,22 +703,54 @@
         setStatus("请先选择会话。");
         return;
       }
-      setStatus("正在运行测试...");
+      setStatus("保存设置并运行测试...");
       try {
+        await persistCurrentControls({ silent: true });
         const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/tests/run`, { method: "POST" });
         state.currentSession = payload.session;
         renderTestSummary(payload.summary);
         renderMessages(state.currentSession);
         renderTasks(state.currentSession.tasks);
         updateMeta();
+        await refreshSessions();
         setStatus("测试执行完成。");
       } catch (error) {
         setStatus(error.message || "测试执行失败。");
       }
     }
 
+    async function deleteCurrentSession() {
+      if (!state.currentSession) {
+        setStatus("请先选择会话。");
+        return;
+      }
+      const sessionId = state.currentSession.session_id;
+      const title = state.currentSession.title || "当前会话";
+      if (!window.confirm(`确认删除会话「${title}」？此操作不可恢复。`)) {
+        return;
+      }
+      try {
+        await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
+        state.currentSession = null;
+        clearPendingAssistant();
+        await refreshSessions();
+        if (state.sessions.length) {
+          await loadSession(state.sessions[0].session_id);
+        } else {
+          renderMessages(null);
+          renderTasks([]);
+          renderTestSummary(null);
+          updateMeta();
+        }
+        setStatus("会话已删除。");
+      } catch (error) {
+        setStatus(error.message || "删除会话失败。");
+      }
+    }
+
     document.getElementById("newSessionBtn").addEventListener("click", () => createSession().catch((err) => setStatus(err.message)));
     document.getElementById("saveSettingsBtn").addEventListener("click", () => saveSettings().catch((err) => setStatus(err.message)));
+    document.getElementById("deleteSessionBtn").addEventListener("click", () => deleteCurrentSession());
     document.getElementById("sendBtn").addEventListener("click", () => sendMessage());
     document.getElementById("runTestsBtn").addEventListener("click", () => runTests());
     document.getElementById("stopBtn").addEventListener("click", () => {

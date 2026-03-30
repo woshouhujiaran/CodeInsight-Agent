@@ -70,3 +70,12 @@ def test_session_store_persists_messages_tasks_and_test_summary(tmp_path: Path) 
     assert loaded["turn_metadata"][0]["trace_id"] == "abc"
     assert loaded["tasks"][0]["summary"] == "已定位"
     assert loaded["last_test_summary"]["passed"] is True
+
+
+def test_session_store_delete_session(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    created = store.create_session(workspace_root=str(tmp_path))
+
+    store.delete_session(created["session_id"])
+
+    assert store.list_sessions() == []

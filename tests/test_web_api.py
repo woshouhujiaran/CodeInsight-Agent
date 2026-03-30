@@ -61,6 +61,10 @@ def test_web_api_session_crud(tmp_path: Path) -> None:
     assert updated.json()["settings"]["allow_shell"] is True
     assert updated.json()["settings"]["max_turns"] == 9
 
+    deleted = client.delete(f"/sessions/{session_id}")
+    assert deleted.status_code == 200
+    assert deleted.json() == {"deleted": True, "session_id": session_id}
+
 
 def test_web_api_post_message_non_stream(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"

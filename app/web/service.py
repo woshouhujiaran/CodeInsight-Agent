@@ -11,7 +11,6 @@ from app.agent.task_board import TaskBoard, TaskItem
 from app.main import create_agent_from_env
 from app.web.session_store import (
     SessionStore,
-    coerce_session_snapshot,
     derive_session_title,
     normalize_session_settings,
 )
@@ -84,6 +83,10 @@ class WebAgentService:
             settings=normalized_settings,
         )
 
+    def delete_session(self, session_id: str) -> dict[str, Any]:
+        self.session_store.delete_session(session_id)
+        return {"deleted": True, "session_id": session_id}
+
     def chat(self, session_id: str, content: str) -> dict[str, Any]:
         events: list[dict[str, Any]] = []
         result = self._process_chat_turn(session_id, content, emit=events.append)
@@ -138,10 +141,15 @@ class WebAgentService:
             raise ValueError("消息内容不能为空。")
 
         snapshot = self.session_store.get_session(session_id)
-        emit({"event": "session", "data": snapshot})
-
         settings = normalize_session_settings(snapshot.get("settings"))
         memory = ConversationMemory.from_snapshot(snapshot)
+        history_for_planner = memory.get_messages()
+        memory.add_user_message(user_content)
+        snapshot["messages"] = memory.get_messages()
+        snapshot["title"] = derive_session_title(snapshot["messages"])
+        snapshot = self.session_store.save_session(snapshot)
+        emit({"event": "session", "data": snapshot})
+
         agent = self.agent_factory(
             snapshot["workspace_root"],
             memory=memory,
@@ -151,7 +159,7 @@ class WebAgentService:
             allow_shell=bool(settings.get("allow_shell")),
         )
 
-        board = TaskBoard.from_dicts(agent.planner.make_task_board(user_content, memory.get_messages()))
+        board = TaskBoard.from_dicts(agent.planner.make_task_board(user_content, history_for_planner))
         snapshot["tasks"] = board.to_dicts()
         snapshot = self.session_store.save_session(snapshot)
         emit({"event": "task_board", "data": snapshot["tasks"]})
@@ -217,6 +225,14 @@ class WebAgentService:
             }
             task_results.append(task_result)
             emit({"event": "task_update", "data": task_result})
+            emit(
+                {
+                    "event": "assistant_delta",
+                    "data": {
+                        "content": f"[{final_task.title}] {final_task.status}: {final_task.summary}\n",
+                    },
+                }
+            )
 
         last_test_summary = snapshot.get("last_test_summary")
         if self._should_auto_run_tests(settings, combined_tool_trace):
@@ -226,7 +242,6 @@ class WebAgentService:
         for chunk in self._chunk_text(final_answer):
             emit({"event": "assistant_delta", "data": {"content": chunk}})
 
-        memory.add_user_message(user_content)
         memory.add_assistant_message(final_answer)
         memory.add_turn_metadata(
             plan=[],
