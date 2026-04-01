@@ -13,6 +13,7 @@ from app.contracts import (
     SessionSnapshotModel as SessionSnapshotRecord,
     dump_model,
     normalize_messages,
+    normalize_max_turns,
     normalize_test_summary,
     normalize_turn_metadata,
 )
@@ -52,10 +53,7 @@ def normalize_session_settings(settings: dict[str, Any] | None) -> dict[str, Any
     if "auto_run_tests" in settings:
         merged["auto_run_tests"] = bool(settings.get("auto_run_tests"))
     if "max_turns" in settings:
-        try:
-            merged["max_turns"] = max(1, int(settings.get("max_turns") or 8))
-        except (TypeError, ValueError):
-            merged["max_turns"] = 8
+        merged["max_turns"] = normalize_max_turns(settings.get("max_turns"))
     return dump_model(SessionSettingsModel(**merged))
 
 

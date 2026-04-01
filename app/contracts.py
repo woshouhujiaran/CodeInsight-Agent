@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 try:  # pragma: no cover - Pydantic v1 fallback
     from pydantic import ConfigDict
@@ -23,12 +23,33 @@ class MessageModel(_ExtraAllowModel):
     content: str
 
 
+DEFAULT_MAX_TURNS = 8
+MIN_MAX_TURNS = 1
+MAX_MAX_TURNS = 20
+
+
+def normalize_max_turns(value: Any) -> int:
+    if isinstance(value, bool):
+        return DEFAULT_MAX_TURNS
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_TURNS
+    if parsed < MIN_MAX_TURNS or parsed > MAX_MAX_TURNS:
+        return DEFAULT_MAX_TURNS
+    return parsed
+
+
 class SessionSettingsModel(_ExtraAllowModel):
     allow_write: bool = False
     allow_shell: bool = False
     test_command: str = ""
     auto_run_tests: bool = False
-    max_turns: int = Field(default=8, ge=1)
+    max_turns: int = Field(default=DEFAULT_MAX_TURNS, ge=MIN_MAX_TURNS, le=MAX_MAX_TURNS)
+
+    @validator("max_turns", pre=True, always=True)
+    def _normalize_max_turns(cls, value: Any) -> int:
+        return normalize_max_turns(value)
 
 
 class TestSummaryModel(_ExtraAllowModel):
