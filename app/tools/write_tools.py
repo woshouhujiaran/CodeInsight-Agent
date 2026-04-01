@@ -132,10 +132,10 @@ class WriteFileTool(BaseTool):
                 )
             if expected_hash and expected_hash.strip():
                 try:
-                    current_bytes = target.read_bytes()
+                    current_text = target.read_text(encoding="utf-8", errors="replace")
                 except OSError as exc:
                     return make_tool_result(status="error", data=None, error=f"读取现有文件失败：{exc}", meta={})
-                current_hex = hashlib.sha256(current_bytes).hexdigest()
+                current_hex = _sha256_utf8(current_text)
                 want = expected_hash.strip().lower()
                 if current_hex != want:
                     return make_tool_result(

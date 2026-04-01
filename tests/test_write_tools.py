@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from app.tools.filesystem_tools import ReadFileTool
 from app.tools.write_tools import ApplyPatchTool, WriteFileTool
 
 
@@ -66,4 +67,24 @@ def test_write_file_expected_hash_mismatch(tmp_path: Path) -> None:
         }
     )
     assert r["status"] == "error"
-    assert "不一致" in (r.get("error") or "")
+    assert "expected_content_hash" in (r.get("error") or "")
+
+
+def test_write_file_accepts_hash_from_read_file_tool(tmp_path: Path) -> None:
+    ws = _ws(tmp_path)
+    (ws / "f.txt").write_text("alpha\n", encoding="utf-8")
+    read_tool = ReadFileTool(workspace_root=ws)
+    write_tool = WriteFileTool(workspace_root=ws)
+
+    read_result = read_tool.run({"path": "f.txt"})
+    content_hash = read_result.get("meta", {}).get("content_sha256")
+    write_result = write_tool.run(
+        {
+            "path": "f.txt",
+            "content": "beta\n",
+            "expected_content_hash": content_hash,
+        }
+    )
+
+    assert write_result["status"] == "ok"
+    assert (ws / "f.txt").read_text(encoding="utf-8") == "beta\n"

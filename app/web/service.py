@@ -7,6 +7,9 @@ from typing import Any, Callable, Iterator
 from app.agent.memory import ConversationMemory
 from app.contracts import ServiceEvent, normalize_task_results
 from app.runtime import create_agent_from_env, create_llm_from_env
+from app.tools.base_tool import ensure_tool_result
+from app.tools.filesystem_tools import ListDirTool, ReadFileTool
+from app.tools.write_tools import WriteFileTool
 from app.web.chat_components import (
     AgenticTaskCoordinator,
     AssistantResponseRenderer,
@@ -133,6 +136,95 @@ class WebAgentService:
         snapshot = self.session_store.get_session(session_id)
         updated, summary = self.test_coordinator.run_for_snapshot(snapshot, emit=emit)
         return {"session": updated, "summary": summary}
+
+    def list_workspace_tree(
+        self,
+        session_id: str,
+        *,
+        path: str = ".",
+        depth: int = 4,
+        max_entries: int = 1_000,
+    ) -> dict[str, Any]:
+        snapshot = self.session_store.get_session(session_id)
+        workspace_root = self._require_workspace_root(snapshot)
+        result = self._run_workspace_tool(
+            ListDirTool(workspace_root=workspace_root),
+            {"path": path, "depth": depth, "max_entries": max_entries},
+        )
+        payload = result.get("data") if isinstance(result.get("data"), dict) else {}
+        entries: list[dict[str, Any]] = []
+        root_path = Path(workspace_root).resolve()
+        for rel_path in payload.get("paths") or []:
+            absolute = (root_path / str(rel_path)).resolve()
+            entries.append(
+                {
+                    "path": str(rel_path),
+                    "name": Path(str(rel_path)).name or str(rel_path),
+                    "is_dir": absolute.is_dir(),
+                }
+            )
+        return {
+            "workspace_root": workspace_root,
+            "path": path,
+            "entries": entries,
+            "note": payload.get("note"),
+        }
+
+    def read_workspace_file(
+        self,
+        session_id: str,
+        *,
+        path: str,
+        max_chars: int = 2_000_000,
+    ) -> dict[str, Any]:
+        snapshot = self.session_store.get_session(session_id)
+        workspace_root = self._require_workspace_root(snapshot)
+        result = self._run_workspace_tool(
+            ReadFileTool(workspace_root=workspace_root),
+            {"path": path, "max_chars": max_chars},
+        )
+        meta = result.get("meta") or {}
+        rel_path = str(meta.get("relative_path") or path)
+        body = str(result.get("data") or "")
+        prefix = f"file={rel_path}\n"
+        if body.startswith(prefix):
+            body = body[len(prefix) :]
+        if meta.get("truncated") and "\n\n[truncated:" in body:
+            body = body.rsplit("\n\n[truncated:", 1)[0]
+        return {
+            "workspace_root": workspace_root,
+            "path": rel_path,
+            "content": body,
+            "content_sha256": str(meta.get("content_sha256") or ""),
+            "truncated": bool(meta.get("truncated")),
+            "returned_chars": int(meta.get("returned_chars") or len(body)),
+        }
+
+    def write_workspace_file(
+        self,
+        session_id: str,
+        *,
+        path: str,
+        content: str,
+        expected_content_hash: str | None = None,
+    ) -> dict[str, Any]:
+        snapshot = self.session_store.get_session(session_id)
+        settings = normalize_session_settings(snapshot.get("settings"))
+        if not settings.get("allow_write"):
+            raise PermissionError("当前会话未开启 allow_write，不能保存文件。")
+
+        workspace_root = self._require_workspace_root(snapshot)
+        args: dict[str, Any] = {"path": path, "content": content}
+        if expected_content_hash is not None:
+            args["expected_content_hash"] = expected_content_hash
+        result = self._run_workspace_tool(WriteFileTool(workspace_root=workspace_root), args)
+        meta = result.get("meta") or {}
+        return {
+            "workspace_root": workspace_root,
+            "path": str(meta.get("relative_path") or path),
+            "content_sha256": str(meta.get("content_sha256") or ""),
+            "message": str(result.get("data") or ""),
+        }
 
     def get_latest_eval_result(self) -> dict[str, Any]:
         preferred = self.outputs_dir / "eval_result.json"
@@ -369,6 +461,12 @@ class WebAgentService:
         if workspace_root:
             return workspace_root
         raise ValueError("当前会话未设置 workspace_root。QA 模式可以留空；任务模式请先配置真实工作区。")
+
+    def _run_workspace_tool(self, tool: Any, args: dict[str, Any]) -> dict[str, Any]:
+        result = ensure_tool_result(tool.run(args))
+        if result.get("status") == "error":
+            raise ValueError(str(result.get("error") or "工具执行失败。"))
+        return result
 
     def _ensure_not_cancelled(self, cancel_event: Any | None) -> None:
         if cancel_event is not None and cancel_event.is_set():

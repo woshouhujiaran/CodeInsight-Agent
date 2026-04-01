@@ -26,6 +26,41 @@ class MessageCreateModel(BaseModel):
     content: str = Field(..., min_length=1)
 
 
+class WorkspaceTreeEntryModel(BaseModel):
+    path: str
+    name: str
+    is_dir: bool
+
+
+class WorkspaceTreeResponseModel(BaseModel):
+    workspace_root: str
+    path: str
+    entries: list[WorkspaceTreeEntryModel]
+    note: str | None = None
+
+
+class WorkspaceFileResponseModel(BaseModel):
+    workspace_root: str
+    path: str
+    content: str
+    content_sha256: str
+    truncated: bool = False
+    returned_chars: int = 0
+
+
+class WorkspaceFileUpdateModel(BaseModel):
+    path: str = Field(..., min_length=1)
+    content: str
+    expected_content_hash: str | None = None
+
+
+class WorkspaceFileWriteResponseModel(BaseModel):
+    workspace_root: str
+    path: str
+    content_sha256: str
+    message: str
+
+
 class SessionSummaryModel(BaseModel):
     session_id: str
     title: str

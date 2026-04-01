@@ -19,6 +19,10 @@ from app.web.schemas import (
     SessionSnapshotModel,
     SessionSummaryModel,
     SessionUpdateModel,
+    WorkspaceFileResponseModel,
+    WorkspaceFileUpdateModel,
+    WorkspaceFileWriteResponseModel,
+    WorkspaceTreeResponseModel,
 )
 from app.web.service import WebAgentService
 
@@ -122,6 +126,58 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
     def run_tests(session_id: str) -> dict[str, Any]:
         try:
             return app.state.service.run_session_tests(session_id)
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="会话不存在。") from exc
+        except PermissionError as exc:
+            raise HTTPException(status_code=403, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/sessions/{session_id}/workspace/tree", response_model=WorkspaceTreeResponseModel)
+    def get_workspace_tree(
+        session_id: str,
+        path: str = Query(default="."),
+        depth: int = Query(default=4, ge=1, le=8),
+        max_entries: int = Query(default=1000, ge=1, le=5000),
+    ) -> dict[str, Any]:
+        try:
+            return app.state.service.list_workspace_tree(
+                session_id,
+                path=path,
+                depth=depth,
+                max_entries=max_entries,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="会话不存在。") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.get("/sessions/{session_id}/workspace/file", response_model=WorkspaceFileResponseModel)
+    def get_workspace_file(
+        session_id: str,
+        path: str = Query(..., min_length=1),
+        max_chars: int = Query(default=2_000_000, ge=1, le=2_000_000),
+    ) -> dict[str, Any]:
+        try:
+            return app.state.service.read_workspace_file(
+                session_id,
+                path=path,
+                max_chars=max_chars,
+            )
+        except KeyError as exc:
+            raise HTTPException(status_code=404, detail="会话不存在。") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.put("/sessions/{session_id}/workspace/file", response_model=WorkspaceFileWriteResponseModel)
+    def put_workspace_file(session_id: str, payload: WorkspaceFileUpdateModel) -> dict[str, Any]:
+        try:
+            return app.state.service.write_workspace_file(
+                session_id,
+                path=payload.path,
+                content=payload.content,
+                expected_content_hash=payload.expected_content_hash,
+            )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="会话不存在。") from exc
         except PermissionError as exc:

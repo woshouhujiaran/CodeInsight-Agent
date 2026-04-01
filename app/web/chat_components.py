@@ -38,6 +38,19 @@ class TurnModeDecider:
         if self._PATH_PATTERN.search(text):
             return "agentic"
 
+        direct_agentic_requests = (
+            "分析并修改",
+            "分析并修复",
+            "请修改",
+            "请修复",
+            "修改当前项目",
+            "修复当前项目",
+            "改造当前项目",
+            "补充最小测试",
+        )
+        if self._contains_any(text, lowered, direct_agentic_requests):
+            return "agentic"
+
         forced_qa_keywords = (
             "qa 模式",
             "qa模式",

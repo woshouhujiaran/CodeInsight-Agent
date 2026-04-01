@@ -163,6 +163,91 @@ def test_web_api_qa_message_works_without_workspace(tmp_path: Path) -> None:
     assert agent_factory.created_agents == []
 
 
+def test_web_api_workspace_tree_and_file_read(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    pkg_dir = workspace / "pkg"
+    pkg_dir.mkdir(parents=True)
+    (workspace / "README.md").write_text("# demo\n", encoding="utf-8")
+    (pkg_dir / "mod.py").write_text("value = 1\n", encoding="utf-8")
+
+    client, _store = _client(tmp_path)
+    created = client.post(
+        "/sessions",
+        json={"workspace_root": str(workspace), "settings": {"allow_write": True}},
+    )
+    session_id = created.json()["session_id"]
+
+    tree = client.get(f"/sessions/{session_id}/workspace/tree")
+    assert tree.status_code == 200
+    entries = {item["path"]: item for item in tree.json()["entries"]}
+    assert entries["pkg"]["is_dir"] is True
+    assert entries["pkg/mod.py"]["is_dir"] is False
+    assert entries["README.md"]["name"] == "README.md"
+
+    file_response = client.get(
+        f"/sessions/{session_id}/workspace/file",
+        params={"path": "pkg/mod.py"},
+    )
+    assert file_response.status_code == 200
+    body = file_response.json()
+    assert body["path"] == "pkg/mod.py"
+    assert body["content"] == "value = 1\n"
+    assert len(body["content_sha256"]) == 64
+
+
+def test_web_api_workspace_write_updates_disk(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "app.py"
+    target.write_text("print('old')\n", encoding="utf-8")
+
+    client, _store = _client(tmp_path)
+    created = client.post(
+        "/sessions",
+        json={"workspace_root": str(workspace), "settings": {"allow_write": True}},
+    )
+    session_id = created.json()["session_id"]
+
+    read_response = client.get(
+        f"/sessions/{session_id}/workspace/file",
+        params={"path": "app.py"},
+    )
+    original_hash = read_response.json()["content_sha256"]
+
+    write_response = client.put(
+        f"/sessions/{session_id}/workspace/file",
+        json={
+            "path": "app.py",
+            "content": "print('new')\n",
+            "expected_content_hash": original_hash,
+        },
+    )
+    assert write_response.status_code == 200
+    assert write_response.json()["path"] == "app.py"
+    assert target.read_text(encoding="utf-8") == "print('new')\n"
+
+
+def test_web_api_workspace_write_requires_allow_write(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "app.py").write_text("print('old')\n", encoding="utf-8")
+
+    client, _store = _client(tmp_path)
+    created = client.post(
+        "/sessions",
+        json={"workspace_root": str(workspace), "settings": {"allow_write": False}},
+    )
+    session_id = created.json()["session_id"]
+
+    response = client.put(
+        f"/sessions/{session_id}/workspace/file",
+        json={"path": "app.py", "content": "print('new')\n"},
+    )
+
+    assert response.status_code == 403
+    assert "allow_write" in response.json()["detail"]
+
+
 def test_web_api_sse_stream_emits_task_board_and_final(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
