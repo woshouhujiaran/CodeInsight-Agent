@@ -241,6 +241,47 @@ class WebAgentService:
             payload = json.load(handle)
         return {"path": str(candidate.resolve()), "payload": payload}
 
+    def pick_local_path(self, selection: str) -> dict[str, Any]:
+        picker = str(selection or "").strip().lower()
+        if picker not in {"file", "folder"}:
+            raise ValueError("selection 必须是 file 或 folder。")
+
+        chosen = str(self._show_native_picker(picker) or "").strip()
+        if not chosen:
+            return {
+                "selected": False,
+                "path": None,
+                "workspace_root": "",
+                "file_path": None,
+                "relative_path": None,
+            }
+
+        resolved = Path(chosen).expanduser().resolve()
+        if picker == "folder":
+            if not resolved.exists():
+                raise ValueError(f"所选目录不存在：{resolved}")
+            if not resolved.is_dir():
+                raise ValueError(f"所选路径不是目录：{resolved}")
+            return {
+                "selected": True,
+                "path": str(resolved),
+                "workspace_root": str(resolved),
+                "file_path": None,
+                "relative_path": None,
+            }
+
+        if not resolved.exists():
+            raise ValueError(f"所选文件不存在：{resolved}")
+        if not resolved.is_file():
+            raise ValueError(f"所选路径不是文件：{resolved}")
+        return {
+            "selected": True,
+            "path": str(resolved),
+            "workspace_root": str(resolved.parent),
+            "file_path": str(resolved),
+            "relative_path": resolved.name,
+        }
+
     def _process_chat_turn(
         self,
         session_id: str,
@@ -467,6 +508,29 @@ class WebAgentService:
         if result.get("status") == "error":
             raise ValueError(str(result.get("error") or "工具执行失败。"))
         return result
+
+    def _show_native_picker(self, selection: str) -> str:
+        try:
+            import tkinter as tk
+            from tkinter import filedialog
+        except Exception as exc:
+            raise RuntimeError("当前环境不支持本地文件选择器。") from exc
+
+        root = tk.Tk()
+        root.withdraw()
+        try:
+            root.attributes("-topmost", True)
+        except Exception:
+            pass
+        try:
+            root.update_idletasks()
+            if selection == "file":
+                chosen = filedialog.askopenfilename(title="选择文件")
+            else:
+                chosen = filedialog.askdirectory(title="选择文件夹", mustexist=True)
+        finally:
+            root.destroy()
+        return str(chosen or "")
 
     def _ensure_not_cancelled(self, cancel_event: Any | None) -> None:
         if cancel_event is not None and cancel_event.is_set():

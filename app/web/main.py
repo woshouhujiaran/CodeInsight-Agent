@@ -14,6 +14,7 @@ import uvicorn
 from app.web.schemas import (
     ChatResponseModel,
     EvalLatestResponseModel,
+    LocalPathPickerResponseModel,
     MessageCreateModel,
     SessionCreateModel,
     SessionSnapshotModel,
@@ -188,6 +189,24 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
     @app.get("/eval/latest", response_model=EvalLatestResponseModel)
     def get_latest_eval() -> dict[str, Any]:
         return app.state.service.get_latest_eval_result()
+
+    @app.post("/system/pick-folder", response_model=LocalPathPickerResponseModel)
+    def pick_folder() -> dict[str, Any]:
+        try:
+            return app.state.service.pick_local_path("folder")
+        except RuntimeError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    @app.post("/system/pick-file", response_model=LocalPathPickerResponseModel)
+    def pick_file() -> dict[str, Any]:
+        try:
+            return app.state.service.pick_local_path("file")
+        except RuntimeError as exc:
+            raise HTTPException(status_code=501, detail=str(exc)) from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     return app
 

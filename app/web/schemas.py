@@ -61,6 +61,14 @@ class WorkspaceFileWriteResponseModel(BaseModel):
     message: str
 
 
+class LocalPathPickerResponseModel(BaseModel):
+    selected: bool
+    path: str | None = None
+    workspace_root: str = ""
+    file_path: str | None = None
+    relative_path: str | None = None
+
+
 class SessionSummaryModel(BaseModel):
     session_id: str
     title: str

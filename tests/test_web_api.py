@@ -119,6 +119,56 @@ def test_web_api_can_create_session_without_workspace(tmp_path: Path) -> None:
     assert created.json()["workspace_root"] == ""
 
 
+def test_web_api_pick_folder_returns_workspace_root(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    client, _store = _client(tmp_path)
+
+    def fake_pick_local_path(selection: str) -> dict[str, object]:
+        assert selection == "folder"
+        return {
+            "selected": True,
+            "path": str(workspace),
+            "workspace_root": str(workspace),
+            "file_path": None,
+            "relative_path": None,
+        }
+
+    client.app.state.service.pick_local_path = fake_pick_local_path
+
+    response = client.post("/system/pick-folder")
+
+    assert response.status_code == 200
+    assert response.json()["workspace_root"] == str(workspace)
+    assert response.json()["file_path"] is None
+
+
+def test_web_api_pick_file_returns_parent_workspace(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "main.py"
+    target.write_text("print('demo')\n", encoding="utf-8")
+    client, _store = _client(tmp_path)
+
+    def fake_pick_local_path(selection: str) -> dict[str, object]:
+        assert selection == "file"
+        return {
+            "selected": True,
+            "path": str(target),
+            "workspace_root": str(workspace),
+            "file_path": str(target),
+            "relative_path": "main.py",
+        }
+
+    client.app.state.service.pick_local_path = fake_pick_local_path
+
+    response = client.post("/system/pick-file")
+
+    assert response.status_code == 200
+    assert response.json()["workspace_root"] == str(workspace)
+    assert response.json()["relative_path"] == "main.py"
+
+
 def test_web_api_post_message_non_stream(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
