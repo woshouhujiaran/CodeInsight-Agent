@@ -24,10 +24,10 @@
       --card-radius:14px;
       --control-radius:10px;
       --shadow:0 18px 48px rgba(2,6,23,.32);
-      --layout-gap:10px;
-      --sidebar-width:clamp(220px,15vw,270px);
-      --assistant-width:clamp(480px,34vw,760px);
-      --assistant-nav-width:248px;
+      --layout-gap:8px;
+      --sidebar-width:clamp(248px,18vw,320px);
+      --assistant-width:clamp(340px,26vw,460px);
+      --assistant-nav-width:236px;
       --session-rail-width:52px;
     }
 
@@ -329,33 +329,41 @@
       white-space:nowrap;
     }
 
+    .workspace-meta{
+      padding:0 2px 10px;
+      font-size:11px;
+      font-weight:700;
+      letter-spacing:.08em;
+      text-transform:uppercase;
+      color:var(--subtle);
+    }
     .workspace-tree{
       display:flex;
       flex-direction:column;
-      gap:2px;
+      gap:0;
       flex:1;
       min-height:0;
       overflow:auto;
       overflow-x:hidden;
-      padding-right:2px;
+      padding-right:0;
     }
-    .tree-node,.tree-children{display:flex;flex-direction:column;gap:2px;overflow:hidden}
+    .tree-node,.tree-children{display:flex;flex-direction:column;gap:1px;overflow:hidden}
     .tree-row{
       display:flex;
       align-items:center;
-      gap:4px;
-      min-height:28px;
-      padding:0 4px;
-      border-radius:8px;
+      gap:3px;
+      min-height:24px;
+      padding:0 2px;
+      border-radius:6px;
       border:1px solid transparent;
       overflow:hidden;
     }
     .tree-row:hover{background:rgba(148,163,184,.06)}
     .tree-row.active{background:var(--accent);border-color:rgba(110,168,254,.24)}
     .tree-toggle,.tree-spacer{
-      flex:0 0 18px;
-      width:18px;
-      height:18px;
+      flex:0 0 16px;
+      width:16px;
+      height:16px;
       display:grid;
       place-items:center;
       text-align:center;
@@ -373,60 +381,40 @@
       flex:1;
       display:flex;
       align-items:center;
-      justify-content:space-between;
-      gap:8px;
+      justify-content:flex-start;
+      gap:0;
       min-width:0;
-      padding:4px 0;
+      padding:3px 0;
       background:transparent;
       border:none;
       text-align:left;
       color:var(--text);
       box-shadow:none;
     }
-    .tree-main{display:flex;align-items:center;gap:8px;min-width:0}
-    .tree-children{margin-left:12px;padding-left:8px;border-left:1px solid rgba(148,163,184,.12)}
-    .workspace-tree-head{justify-content:flex-end;margin-bottom:10px}
-    .tree-row.root{
-      opacity:.62;
-      letter-spacing:.05em;
-    }
-    .tree-row.root .tree-name{
-      filter:blur(.12px);
-    }
+    .tree-main{display:flex;align-items:center;gap:7px;min-width:0}
+    .tree-children{margin-left:8px;padding-left:10px;border-left:1px solid rgba(148,163,184,.12)}
     .tree-row.directory .tree-action{font-weight:600}
-    .tree-file-marker{
-      display:inline-flex;
-      align-items:center;
-      justify-content:center;
-      min-width:18px;
-      padding:1px 4px;
-      border-radius:999px;
-      border:1px solid rgba(148,163,184,.14);
-      background:rgba(148,163,184,.06);
-      color:var(--muted);
-      font-size:9px;
-      font-weight:700;
-      line-height:1.2;
-      text-transform:lowercase;
-      flex:0 0 auto;
-    }
     .tree-empty{
-      margin:4px 0 0 18px;
+      margin:4px 0 0 0;
       padding:8px 10px;
       font-size:11px;
     }
     .tree-name{
+      display:flex;
+      align-items:baseline;
+      min-width:0;
+      overflow:hidden;
+      white-space:nowrap;
+    }
+    .tree-name-base{
+      min-width:0;
       overflow:hidden;
       text-overflow:ellipsis;
       white-space:nowrap;
     }
-    .tree-meta{
+    .tree-name-ext{
       flex:0 0 auto;
-      font-size:9px;
-      font-weight:700;
-      letter-spacing:.08em;
-      text-transform:uppercase;
-      color:var(--subtle);
+      color:var(--muted);
     }
     .tree-icon{position:relative;flex:0 0 16px;width:16px;height:16px}
     .tree-icon.folder::before{
@@ -483,6 +471,15 @@
       background:rgba(148,163,184,.22);
       transform:skew(-10deg,-10deg);
     }
+    .tree-icon.file.python::before{border-color:rgba(96,165,250,.54);background:rgba(96,165,250,.16)}
+    .tree-icon.file.javascript::before,
+    .tree-icon.file.typescript::before{border-color:rgba(245,204,76,.54);background:rgba(245,204,76,.14)}
+    .tree-icon.file.markdown::before{border-color:rgba(192,132,252,.48);background:rgba(192,132,252,.12)}
+    .tree-icon.file.data::before{border-color:rgba(52,211,153,.5);background:rgba(52,211,153,.14)}
+    .tree-icon.file.html::before,
+    .tree-icon.file.style::before{border-color:rgba(248,113,113,.5);background:rgba(248,113,113,.14)}
+    .tree-icon.file.config::before{border-color:rgba(251,191,36,.5);background:rgba(251,191,36,.14)}
+    .tree-icon.file.text::before{border-color:rgba(148,163,184,.4);background:rgba(148,163,184,.12)}
 
     .toolbar{
       display:flex;
@@ -607,8 +604,9 @@
     .file-tab:hover{border-color:rgba(148,163,184,.24);color:var(--text)}
     .file-tab.active{background:var(--accent);border-color:rgba(110,168,254,.28);color:var(--text)}
     .file-tab.dirty .file-name::after{content:" *";color:var(--warn)}
+    .file-tab.external:not(.dirty) .file-name::after{content:" •";color:#93c5fd}
     .file-name{
-      max-width:150px;
+      max-width:220px;
       overflow:hidden;
       text-overflow:ellipsis;
       white-space:nowrap;
@@ -621,17 +619,20 @@
     }
 
     .editor-shell{
+      grid-row:3;
       display:flex;
       flex-direction:column;
       flex:1;
+      height:100%;
       min-height:0;
-      padding:8px 10px 10px;
-      gap:8px;
+      padding:6px 8px 8px;
+      gap:6px;
     }
     .editor-pane{
       display:flex;
       flex-direction:column;
       flex:1;
+      height:100%;
       min-height:0;
       min-width:0;
       border:1px solid var(--line);
@@ -650,18 +651,27 @@
       overflow:hidden;
       flex:1;
     }
-    .editor-empty{margin:10px}
+    .editor-empty{margin:8px}
     .editor-textarea{
+      display:block;
       flex:1;
       width:100%;
+      height:100%;
+      max-height:100%;
       min-height:0;
       border:none;
-      padding:12px;
+      padding:10px 14px;
       background:transparent;
       resize:none;
+      overflow-x:auto;
+      overflow-y:auto;
+      white-space:pre;
+      word-break:normal;
+      overflow-wrap:normal;
       font-family:"Cascadia Code","SFMono-Regular",Consolas,monospace;
-      font-size:13px;
-      line-height:1.65;
+      font-size:15px;
+      line-height:1.6;
+      tab-size:4;
     }
     .editor-textarea[disabled]{color:var(--muted);cursor:not-allowed}
     .editor-statusbar{
@@ -896,11 +906,9 @@
     .tree-node,.tree-children{overflow:visible}
     .tree-row{min-height:24px;padding:0 2px}
     .tree-main{gap:6px}
-    .tree-children{margin-left:10px;padding-left:6px}
-    .tree-meta{font-size:8px}
-    .tree-file-marker{min-width:16px;padding:1px 3px;font-size:8px}
+    .tree-children{margin-left:8px;padding-left:8px}
 
-    .editor{grid-template-rows:auto auto auto minmax(0,1fr)}
+    .editor{grid-template-rows:auto auto minmax(0,1fr)}
     .assistant{grid-template-rows:minmax(0,1fr)}
     .assistant-chat-shell{
       padding:10px;
@@ -1203,10 +1211,7 @@
       </div>
       <div class="sidebar-body">
         <div class="card sidebar-card sidebar-tree-card">
-          <div class="section-head workspace-tree-head">
-            <button id="refreshTreeBtn" class="secondary" type="button">刷新</button>
-          </div>
-          <div id="workspaceMeta" class="mono">尚未选择会话</div>
+          <div id="workspaceMeta" class="workspace-meta">尚未选择会话</div>
           <div id="workspaceTree" class="workspace-tree"></div>
         </div>
       </div>
@@ -1315,7 +1320,7 @@
         <div id="fileTabs" class="file-tabs"></div>
         <div class="editor-pane">
           <div id="editorEmpty" class="empty editor-empty">点击左侧文件树中的文件开始查看或编辑。支持多文件标签切换。</div>
-          <textarea id="editorTextarea" class="editor-textarea" spellcheck="false" hidden></textarea>
+          <textarea id="editorTextarea" class="editor-textarea" spellcheck="false" wrap="off" hidden></textarea>
           <div id="editorStatus" class="editor-statusbar">尚未打开文件</div>
         </div>
       </div>
@@ -1378,22 +1383,26 @@
     const MAX_SESSION_NAV_WIDTH = 360;
     const DEFAULT_SESSION_NAV_WIDTH = 248;
     const CHANGE_SUMMARY_DEBOUNCE_MS = 560;
+    const WORKSPACE_AUTO_SYNC_MS = 2500;
     const TREE_ROOT_PATH = ".";
-    const FILE_TYPE_MARKERS = {
-      ".py": "py",
-      ".js": "js",
-      ".ts": "ts",
-      ".tsx": "tsx",
-      ".jsx": "jsx",
-      ".json": "{}",
-      ".html": "<>",
-      ".css": "css",
-      ".md": "md",
-      ".yml": "yml",
-      ".yaml": "yml",
-      ".sh": "$",
-      ".txt": "..",
-      default: "::"
+    const FILE_ICON_TYPES = {
+      ".py": "python",
+      ".js": "javascript",
+      ".jsx": "javascript",
+      ".ts": "typescript",
+      ".tsx": "typescript",
+      ".json": "data",
+      ".md": "markdown",
+      ".html": "html",
+      ".css": "style",
+      ".scss": "style",
+      ".less": "style",
+      ".yml": "config",
+      ".yaml": "config",
+      ".toml": "config",
+      ".ini": "config",
+      ".txt": "text",
+      default: "text"
     };
 
     (function bootstrapPanels() {
@@ -1509,6 +1518,9 @@
       pendingAssistantEl: null,
       pendingAssistantText: "",
       workspaceEntries: [],
+      workspaceEntryIndex: new Map(),
+      workspaceSnapshotKey: "",
+      workspaceNote: "",
       expanded: { ".": true },
       openFiles: [],
       activeFilePath: "",
@@ -1525,6 +1537,8 @@
     };
     let fileRevisionCounter = 0;
     let changeSummaryTimer = null;
+    let workspaceSyncTimer = null;
+    let workspaceSyncInFlight = false;
 
     const $ = id => document.getElementById(id);
     const els = {
@@ -1543,7 +1557,6 @@
       toggleArchivedBtn: $("toggleArchivedBtn"),
       workspaceMeta: $("workspaceMeta"),
       workspaceTree: $("workspaceTree"),
-      refreshTreeBtn: $("refreshTreeBtn"),
       fileTabs: $("fileTabs"),
       contextDrawer: $("contextDrawer"),
       contextDrawerTitle: $("contextDrawerTitle"),
@@ -1640,6 +1653,47 @@
       return parts[parts.length - 1] || value;
     }
 
+    function splitFileName(value) {
+      const name = String(value || "");
+      const dotIndex = name.lastIndexOf(".");
+      if (dotIndex <= 0) return { base: name, ext: "" };
+      return {
+        base: name.slice(0, dotIndex),
+        ext: name.slice(dotIndex)
+      };
+    }
+
+    function fileIconType(name) {
+      const lowerName = String(name || "").toLowerCase();
+      const dotIndex = lowerName.lastIndexOf(".");
+      const extension = dotIndex >= 0 ? lowerName.slice(dotIndex) : "";
+      return FILE_ICON_TYPES[extension] || FILE_ICON_TYPES.default;
+    }
+
+    function formatWorkspaceNote(note) {
+      const value = String(note || "").replace(/\s+/g, " ").trim();
+      if (!value) return "";
+      if (value.includes("truncated")) return "条目过多，当前列表已截断";
+      return value;
+    }
+
+    function workspaceEntryKey(entry) {
+      return [
+        entry.is_dir ? "d" : "f",
+        normPath(entry.path),
+        Number.isFinite(Number(entry.modified_ns)) ? Number(entry.modified_ns) : "",
+        Number.isFinite(Number(entry.size_bytes)) ? Number(entry.size_bytes) : ""
+      ].join(":");
+    }
+
+    function workspaceSnapshotKey(entries) {
+      return entries.map(workspaceEntryKey).join("|");
+    }
+
+    function getWorkspaceEntry(path) {
+      return state.workspaceEntryIndex.get(normPath(path)) || null;
+    }
+
     function escapeSelector(value) {
       if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(value || ""));
       return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "\\$&");
@@ -1676,6 +1730,10 @@
         contentHash: String(file?.contentHash || ""),
         dirty: !!file?.dirty,
         truncated: !!file?.truncated,
+        modifiedNs: Number.isFinite(Number(file?.modifiedNs)) ? Number(file.modifiedNs) : null,
+        sizeBytes: Number.isFinite(Number(file?.sizeBytes)) ? Number(file.sizeBytes) : null,
+        externalChanged: !!file?.externalChanged,
+        missingOnDisk: !!file?.missingOnDisk,
         originalRevision: Number(file?.originalRevision) || baseRevision,
         contentRevision: Number(file?.contentRevision) || baseRevision,
         diffCacheKey: String(file?.diffCacheKey || ""),
@@ -1954,6 +2012,53 @@
       return merged;
     }
 
+    function hasWorkspaceEntryChanged(file, entry) {
+      if (!entry || entry.is_dir) return true;
+      const previousModified = Number.isFinite(Number(file?.modifiedNs)) ? Number(file.modifiedNs) : null;
+      const nextModified = Number.isFinite(Number(entry.modified_ns)) ? Number(entry.modified_ns) : null;
+      const previousSize = Number.isFinite(Number(file?.sizeBytes)) ? Number(file.sizeBytes) : null;
+      const nextSize = Number.isFinite(Number(entry.size_bytes)) ? Number(entry.size_bytes) : null;
+      if (previousModified !== null && nextModified !== null && previousModified !== nextModified) return true;
+      if (previousSize !== null && nextSize !== null && previousSize !== nextSize) return true;
+      return !!file?.missingOnDisk;
+    }
+
+    function syncOpenFilesFromWorkspace() {
+      state.openFiles = state.openFiles.map(file => {
+        const entry = getWorkspaceEntry(file.path);
+        const changedOnDisk = hasWorkspaceEntryChanged(file, entry);
+        return hydrateOpenFile({
+          ...file,
+          modifiedNs: entry?.modified_ns ?? null,
+          sizeBytes: entry?.size_bytes ?? null,
+          missingOnDisk: !entry,
+          externalChanged: file.dirty ? !!file.externalChanged || changedOnDisk : changedOnDisk
+        });
+      });
+    }
+
+    function applyWorkspaceTreePayload(payload) {
+      const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+      const note = String(payload?.note || "");
+      const nextSnapshotKey = workspaceSnapshotKey(entries);
+      const changed = state.workspaceSnapshotKey !== nextSnapshotKey || state.workspaceNote !== note;
+
+      state.workspaceEntries = entries;
+      state.workspaceEntryIndex = new Map(entries.map(entry => [normPath(entry.path), entry]));
+      state.workspaceSnapshotKey = nextSnapshotKey;
+      state.workspaceNote = note;
+
+      for (const entry of entries) {
+        if (entry.is_dir && normPath(entry.path).split("/").length <= 1) state.expanded[entry.path] = true;
+      }
+
+      state.workspaceTreeModel = null;
+      state.workspaceNodeIndex = new Map();
+      syncOpenFilesFromWorkspace();
+      if (state.activeFilePath) ensureExpanded(state.activeFilePath);
+      return changed;
+    }
+
     function setStreamingControls(busy) {
       updateSendButtonState(busy);
       sendBtnEl.disabled = false;
@@ -1964,7 +2069,7 @@
       els.openFolderBtn.disabled = busy;
       els.openFileBtn.disabled = busy;
       els.messageInput.disabled = busy;
-      els.refreshTreeBtn.disabled = busy;
+      if (els.refreshTreeBtn) els.refreshTreeBtn.disabled = busy;
       els.stopBtn.disabled = true;
       els.stopBtn.hidden = true;
       els.reloadFileBtn.disabled = busy || !getActiveFile();
@@ -2011,6 +2116,9 @@
 
     function resetWorkspaceState() {
       state.workspaceEntries = [];
+      state.workspaceEntryIndex = new Map();
+      state.workspaceSnapshotKey = "";
+      state.workspaceNote = "";
       state.expanded = { ".": true };
       state.openFiles = [];
       state.activeFilePath = "";
@@ -3240,6 +3348,409 @@
       }
     }
 
+    function renderWorkspaceMeta(note = state.workspaceNote) {
+      if (!state.currentSession) {
+        els.workspaceMeta.textContent = "未选择会话";
+        return;
+      }
+      if (!state.currentSession.workspace_root) {
+        els.workspaceMeta.textContent = "当前会话未绑定工作区";
+        return;
+      }
+      const bits = ["资源管理器", `${state.workspaceEntries.length} 项`, "自动同步"];
+      const metaNote = formatWorkspaceNote(note);
+      if (metaNote) bits.push(metaNote);
+      els.workspaceMeta.textContent = bits.join(" · ");
+    }
+
+    function renderTreeName(node) {
+      if (node.is_dir) return `<span class="tree-name">${escapeHtml(node.name)}</span>`;
+      const parts = splitFileName(node.name);
+      if (!parts.ext) return `<span class="tree-name">${escapeHtml(node.name)}</span>`;
+      return `
+        <span class="tree-name">
+          <span class="tree-name-base">${escapeHtml(parts.base)}</span><span class="tree-name-ext">${escapeHtml(parts.ext)}</span>
+        </span>
+      `;
+    }
+
+    function renderTreeNodes(nodes) {
+      return nodes.map(node => {
+        const open = state.expanded[node.path] !== false;
+        const active = !node.is_dir && state.activeFilePath === node.path ? "active" : "";
+        const actionAttr = node.is_dir
+          ? `data-tree-dir="${escapeHtml(node.path)}"`
+          : `data-tree-file="${escapeHtml(node.path)}"`;
+        const toggle = node.is_dir
+          ? `<button class="tree-toggle" type="button" data-tree-toggle="${escapeHtml(node.path)}" aria-label="${open ? "折叠目录" : "展开目录"}">${open ? "▾" : "▸"}</button>`
+          : '<span class="tree-spacer" aria-hidden="true"></span>';
+        const iconClass = node.is_dir
+          ? `tree-icon folder ${open ? "open" : ""}`
+          : `tree-icon file ${fileIconType(node.name)}`;
+        const childrenBody = open && node.children.length ? renderTreeNodes(node.children) : "";
+        return `
+          <div class="tree-node" data-tree-node="${escapeHtml(node.path)}" data-open="${open ? "true" : "false"}">
+            <div class="tree-row ${node.is_dir ? "directory" : "file"} ${active}" data-tree-row-path="${escapeHtml(node.path)}" style="padding-left:${Math.max(0, (node.depth - 1) * 14)}px">
+              ${toggle}
+              <button class="tree-action" type="button" ${actionAttr} title="${escapeHtml(node.path)}">
+                <span class="tree-main">
+                  <span class="${iconClass}" aria-hidden="true"></span>
+                  ${renderTreeName(node)}
+                </span>
+              </button>
+            </div>
+            <div class="tree-children" data-tree-children ${open ? "" : "hidden"}>${childrenBody}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function updateTreeNodeDom(path) {
+      const normalizedPath = normPath(path || TREE_ROOT_PATH) || TREE_ROOT_PATH;
+      const node = state.workspaceNodeIndex.get(normalizedPath);
+      if (!node) {
+        renderWorkspaceTree();
+        return;
+      }
+      const treeNode = els.workspaceTree.querySelector(`[data-tree-node="${escapeSelector(normalizedPath)}"]`);
+      if (!treeNode) {
+        renderWorkspaceTree();
+        return;
+      }
+      const open = state.expanded[normalizedPath] !== false;
+      treeNode.dataset.open = open ? "true" : "false";
+      const toggle = treeNode.querySelector(`[data-tree-toggle="${escapeSelector(normalizedPath)}"]`) || treeNode.querySelector("[data-tree-toggle]");
+      if (toggle) {
+        toggle.textContent = open ? "▾" : "▸";
+        toggle.setAttribute("aria-label", open ? "折叠目录" : "展开目录");
+      }
+      const children = treeNode.querySelector("[data-tree-children]");
+      if (!children) return;
+      if (!open) {
+        children.hidden = true;
+        children.innerHTML = "";
+        return;
+      }
+      children.hidden = false;
+      children.innerHTML = node.children.length ? renderTreeNodes(node.children) : "";
+      syncWorkspaceSelection();
+    }
+
+    function renderWorkspaceTree() {
+      if (!state.currentSession) {
+        els.workspaceTree.innerHTML = '<div class="empty">先创建或选择会话。</div>';
+        return;
+      }
+      if (!state.currentSession.workspace_root) {
+        els.workspaceTree.innerHTML = '<div class="empty">当前会话没有工作区，无法浏览目录。</div>';
+        return;
+      }
+      const rootNode = getWorkspaceTreeModel();
+      els.workspaceTree.innerHTML = rootNode.children.length
+        ? renderTreeNodes(rootNode.children)
+        : '<div class="empty tree-empty">当前工作区暂无可显示文件。</div>';
+      syncWorkspaceSelection();
+    }
+
+    function syncFileTabsState() {
+      if (!state.openFiles.length) return;
+      const tabs = [...els.fileTabs.querySelectorAll("[data-tab]")];
+      if (tabs.length !== state.openFiles.length) {
+        renderFileTabs();
+        return;
+      }
+      let needsRerender = false;
+      tabs.forEach((element, index) => {
+        const file = state.openFiles[index];
+        if (!file || element.dataset.tab !== file.path) {
+          needsRerender = true;
+          return;
+        }
+        element.classList.toggle("active", file.path === state.activeFilePath);
+        element.classList.toggle("dirty", !!file.dirty);
+        element.classList.toggle("external", !!file.externalChanged && !file.dirty);
+        element.title = file.path;
+        const label = element.querySelector(".file-name");
+        if (label && label.textContent !== file.name) label.textContent = file.name;
+      });
+      if (needsRerender) renderFileTabs();
+    }
+
+    function renderFileTabs() {
+      if (!state.openFiles.length) {
+        els.fileTabs.innerHTML = '<div class="empty" style="padding:8px 10px">尚未打开文件</div>';
+        return;
+      }
+      els.fileTabs.innerHTML = state.openFiles.map(file => `
+        <div class="file-tab ${file.path === state.activeFilePath ? "active" : ""} ${file.dirty ? "dirty" : ""} ${file.externalChanged && !file.dirty ? "external" : ""}" data-tab="${escapeHtml(file.path)}" title="${escapeHtml(file.path)}">
+          <span class="file-name">${escapeHtml(file.name)}</span>
+          <button class="ghost file-tab-close" type="button" data-close="${escapeHtml(file.path)}" aria-label="关闭文件">x</button>
+        </div>
+      `).join("");
+    }
+
+    function renderEditor({ syncValue = true, refreshSummary = true } = {}) {
+      const file = getActiveFile();
+      if (!file) {
+        els.editorTitle.textContent = "代码编辑器";
+        els.editorMeta.textContent = "文件树、标签和会话区域可独立折叠，代码区优先保证可视面积。";
+        els.editorStatus.textContent = "尚未打开文件";
+        els.editorEmpty.hidden = false;
+        els.editorTextarea.hidden = true;
+        if (syncValue) els.editorTextarea.value = "";
+        els.editorTextarea.disabled = true;
+        els.reloadFileBtn.disabled = true;
+        els.saveFileBtn.disabled = true;
+        if (refreshSummary) scheduleChangeSummaryRender({ immediate: true });
+        return;
+      }
+
+      const tabIndex = Math.max(0, state.openFiles.findIndex(item => item.path === file.path)) + 1;
+      const modeLabel = state.currentSession?.workspace_root ? "工作区模式" : "问答模式";
+      const bits = [`标签 ${tabIndex}/${state.openFiles.length}`];
+      if (file.contentHash) bits.push(`校验 ${file.contentHash.slice(0, 12)}`);
+      if (file.truncated) bits.push("文件过大，只读显示");
+      else if (file.missingOnDisk && file.dirty) bits.push("磁盘文件已删除，保留当前未保存内容");
+      else if (file.missingOnDisk) bits.push("磁盘文件已删除");
+      else if (file.externalChanged && file.dirty) bits.push("磁盘版本已变化，未覆盖本地修改");
+      else if (file.externalChanged) bits.push("磁盘版本已变化");
+      else if (!state.currentSession?.settings?.allow_write) bits.push("当前会话未开启写权限");
+      else if (file.dirty) bits.push("存在未保存修改");
+      else bits.push("已与磁盘同步");
+      if (state.streamController) bits.push("助手执行中");
+
+      els.editorTitle.textContent = "代码编辑器";
+      els.editorMeta.textContent = `已打开 ${state.openFiles.length} 个标签 | ${modeLabel}`;
+      els.editorStatus.textContent = bits.join(" | ");
+      els.editorEmpty.hidden = true;
+      els.editorTextarea.hidden = false;
+      if (syncValue && els.editorTextarea.value !== file.content) els.editorTextarea.value = file.content;
+      els.editorTextarea.disabled = !canEditActiveFile();
+      els.reloadFileBtn.disabled = !!state.streamController || file.missingOnDisk;
+      els.saveFileBtn.disabled = !canSaveActiveFile();
+      if (refreshSummary) scheduleChangeSummaryRender({ immediate: true });
+    }
+
+    async function refreshWorkspaceTree({ skipPersist = false, silent = false } = {}) {
+      if (!state.currentSession) {
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        return false;
+      }
+      if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      if (!state.currentSession.workspace_root) {
+        state.workspaceEntries = [];
+        state.workspaceEntryIndex = new Map();
+        state.workspaceSnapshotKey = "";
+        state.workspaceNote = "";
+        state.workspaceTreeModel = null;
+        state.workspaceNodeIndex = new Map();
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        renderFileTabs();
+        renderEditor({ refreshSummary: false });
+        return false;
+      }
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
+      const changed = applyWorkspaceTreePayload(payload);
+      await syncActiveFileFromWorkspace({ quiet: true });
+      renderWorkspaceMeta();
+      renderWorkspaceTree();
+      renderFileTabs();
+      renderEditor({ refreshSummary: false });
+      if (!silent) setStatus(changed ? "工作区已更新。" : "工作区已同步。");
+      return changed;
+    }
+
+    async function openFile(path, { forceReload = false, skipPersist = false, quiet = false } = {}) {
+      const normalizedPath = normPath(path);
+      const existing = getOpenFile(normalizedPath);
+      if (existing && !forceReload) {
+        activateFile(existing.path);
+        return existing;
+      }
+      if (existing?.dirty && forceReload && !window.confirm(`重新加载 ${existing.path} 会覆盖未保存修改。是否继续？`)) return existing;
+      if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file?path=${encodeURIComponent(normalizedPath)}`);
+      const revision = nextFileRevision();
+      const entry = getWorkspaceEntry(payload.path) || getWorkspaceEntry(normalizedPath);
+      upsertOpenFile({
+        path: payload.path,
+        name: baseName(payload.path),
+        content: payload.content,
+        originalContent: payload.content,
+        contentHash: payload.content_sha256,
+        dirty: false,
+        truncated: !!payload.truncated,
+        modifiedNs: entry?.modified_ns ?? null,
+        sizeBytes: entry?.size_bytes ?? null,
+        externalChanged: false,
+        missingOnDisk: false,
+        originalRevision: revision,
+        contentRevision: revision,
+        diffCacheKey: "",
+        diffCache: null
+      });
+      renderWorkspaceTree();
+      renderFileTabs();
+      renderEditor({ refreshSummary: true });
+      if (!quiet) {
+        setStatus(payload.truncated ? `已打开 ${payload.path}，但文件过大，当前只读。` : `已打开 ${payload.path}`);
+      }
+      return getOpenFile(payload.path);
+    }
+
+    async function reloadActiveFile() {
+      const file = getActiveFile();
+      if (!file) {
+        setStatus("请先打开文件。");
+        return;
+      }
+      if (file.missingOnDisk) {
+        setStatus("当前文件已不在工作区中，无法重新加载。");
+        return;
+      }
+      await openFile(file.path, { forceReload: true });
+    }
+
+    async function saveActiveFile() {
+      if (state.streamController) {
+        setStatus("请等待当前流式运行结束。");
+        return;
+      }
+      const file = getActiveFile();
+      if (!file) {
+        setStatus("请先打开文件。");
+        return;
+      }
+      if (file.truncated) {
+        setStatus("当前文件过大，只读显示，无法直接保存。");
+        return;
+      }
+      await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      if (!state.currentSession?.settings?.allow_write) {
+        setStatus("请先开启“允许写盘”并保存设置。");
+        renderEditor({ refreshSummary: false });
+        return;
+      }
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file`, {
+        method: "PUT",
+        body: JSON.stringify({
+          path: file.path,
+          content: file.content,
+          expected_content_hash: file.contentHash || undefined
+        })
+      });
+      const revision = nextFileRevision();
+      upsertOpenFile({
+        ...file,
+        content: file.content,
+        originalContent: file.content,
+        contentHash: payload.content_sha256,
+        dirty: false,
+        truncated: false,
+        externalChanged: false,
+        missingOnDisk: false,
+        originalRevision: revision,
+        contentRevision: revision,
+        diffCacheKey: "",
+        diffCache: null
+      });
+      await refreshWorkspaceTree({ skipPersist: true, silent: true });
+      syncFileTabsState();
+      renderEditor({ refreshSummary: true });
+      setStatus(`已保存 ${payload.path}`);
+    }
+
+    async function syncActiveFileFromWorkspace({ quiet = false } = {}) {
+      const file = getActiveFile();
+      if (!file) return false;
+      const entry = getWorkspaceEntry(file.path);
+      if (!entry) {
+        upsertOpenFile({
+          ...file,
+          modifiedNs: null,
+          sizeBytes: null,
+          missingOnDisk: true,
+          externalChanged: true
+        });
+        syncFileTabsState();
+        renderEditor({ refreshSummary: false });
+        if (!quiet) setStatus(`检测到 ${file.path} 已从工作区移除。`);
+        return false;
+      }
+      if (!hasWorkspaceEntryChanged(file, entry)) return false;
+      if (file.dirty) {
+        upsertOpenFile({
+          ...file,
+          modifiedNs: entry.modified_ns ?? null,
+          sizeBytes: entry.size_bytes ?? null,
+          missingOnDisk: false,
+          externalChanged: true
+        });
+        syncFileTabsState();
+        renderEditor({ refreshSummary: false });
+        if (!quiet) setStatus(`检测到 ${file.path} 在磁盘上已更新，未覆盖当前未保存修改。`);
+        return false;
+      }
+      await openFile(file.path, { forceReload: true, skipPersist: true, quiet: true });
+      if (!quiet) setStatus(`检测到 ${file.path} 已更新，已自动同步到编辑器。`);
+      return true;
+    }
+
+    async function syncWorkspaceIfChanged({ silent = true } = {}) {
+      if (workspaceSyncInFlight || !state.currentSession?.workspace_root || document.hidden) return false;
+      workspaceSyncInFlight = true;
+      try {
+        const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
+        const nextEntries = Array.isArray(payload?.entries) ? payload.entries : [];
+        const nextNote = String(payload?.note || "");
+        const nextSnapshotKey = workspaceSnapshotKey(nextEntries);
+        if (state.workspaceSnapshotKey === nextSnapshotKey && state.workspaceNote === nextNote) return false;
+        applyWorkspaceTreePayload(payload);
+        const reloaded = await syncActiveFileFromWorkspace({ quiet: true });
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        renderFileTabs();
+        renderEditor({ refreshSummary: false });
+        if (!silent) {
+          setStatus(reloaded ? "检测到工作区改动，已自动更新文件和目录。" : "检测到工作区改动，已自动更新目录。");
+        }
+        return true;
+      } catch (error) {
+        if (!silent) setStatus(error.message || "工作区自动同步失败。");
+        return false;
+      } finally {
+        workspaceSyncInFlight = false;
+      }
+    }
+
+    function stopWorkspaceAutoSync() {
+      if (!workspaceSyncTimer) return;
+      window.clearInterval(workspaceSyncTimer);
+      workspaceSyncTimer = null;
+    }
+
+    function startWorkspaceAutoSync() {
+      stopWorkspaceAutoSync();
+      workspaceSyncTimer = window.setInterval(() => {
+        syncWorkspaceIfChanged().catch(() => {});
+      }, WORKSPACE_AUTO_SYNC_MS);
+    }
+
+    function finalizeStream(fallbackStatus) {
+      const terminal = state.streamTerminalStatus || fallbackStatus || "";
+      clearPendingAssistant();
+      if (state.currentSession) renderMessages(state.currentSession);
+      state.streamController = null;
+      state.streamStopRequested = false;
+      state.streamTerminalStatus = "";
+      setStreamingControls(false);
+      syncWorkspaceIfChanged({ silent: true }).catch(() => {});
+      renderEditor({ refreshSummary: false });
+      if (terminal) setStatus(terminal);
+    }
+
     els.editorTextarea.addEventListener("input", () => {
       const file = getActiveFile();
       if (!file) return;
@@ -3329,7 +3840,7 @@
       sendMessage();
     });
     els.runTestsBtn.addEventListener("click", () => runTests());
-    els.refreshTreeBtn.addEventListener("click", () => refreshWorkspaceTree().catch(error => setStatus(error.message)));
+    els.refreshTreeBtn?.addEventListener("click", () => refreshWorkspaceTree().catch(error => setStatus(error.message)));
     els.reloadFileBtn.addEventListener("click", () => reloadActiveFile().catch(error => setStatus(error.message)));
     els.saveFileBtn.addEventListener("click", () => saveActiveFile().catch(error => setStatus(error.message)));
     els.stopBtn.addEventListener("click", requestStopStream);
@@ -3352,11 +3863,19 @@
         });
       }
     });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) return;
+      syncWorkspaceIfChanged({ silent: true }).catch(() => {});
+    });
+    window.addEventListener("focus", () => {
+      syncWorkspaceIfChanged({ silent: true }).catch(() => {});
+    });
 
     readLayoutState();
     applyLayoutState();
     renderContextDrawer();
     setStreamingControls(false);
+    startWorkspaceAutoSync();
     renderWorkspaceMeta();
     renderWorkspaceTree();
     renderFileTabs();

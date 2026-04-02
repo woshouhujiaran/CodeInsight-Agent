@@ -33,6 +33,8 @@ class WorkspaceTreeEntryModel(BaseModel):
     path: str
     name: str
     is_dir: bool
+    size_bytes: int | None = None
+    modified_ns: int | None = None
 
 
 class WorkspaceTreeResponseModel(BaseModel):

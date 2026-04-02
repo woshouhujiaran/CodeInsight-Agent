@@ -166,11 +166,18 @@ class WebAgentService:
         root_path = Path(workspace_root).resolve()
         for rel_path in payload.get("paths") or []:
             absolute = (root_path / str(rel_path)).resolve()
+            stat = None
+            try:
+                stat = absolute.stat()
+            except OSError:
+                stat = None
             entries.append(
                 {
                     "path": str(rel_path),
                     "name": Path(str(rel_path)).name or str(rel_path),
                     "is_dir": absolute.is_dir(),
+                    "size_bytes": None if absolute.is_dir() else int(stat.st_size) if stat else None,
+                    "modified_ns": int(stat.st_mtime_ns) if stat else None,
                 }
             )
         return {
