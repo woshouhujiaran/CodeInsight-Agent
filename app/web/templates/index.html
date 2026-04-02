@@ -26,7 +26,8 @@
       --shadow:0 18px 48px rgba(2,6,23,.32);
       --layout-gap:10px;
       --sidebar-width:clamp(220px,15vw,270px);
-      --assistant-width:clamp(340px,24vw,430px);
+      --assistant-width:clamp(480px,34vw,760px);
+      --assistant-nav-width:248px;
       --session-rail-width:52px;
     }
 
@@ -384,6 +385,36 @@
     }
     .tree-main{display:flex;align-items:center;gap:8px;min-width:0}
     .tree-children{margin-left:12px;padding-left:8px;border-left:1px solid rgba(148,163,184,.12)}
+    .workspace-tree-head{justify-content:flex-end;margin-bottom:10px}
+    .tree-row.root{
+      opacity:.62;
+      letter-spacing:.05em;
+    }
+    .tree-row.root .tree-name{
+      filter:blur(.12px);
+    }
+    .tree-row.directory .tree-action{font-weight:600}
+    .tree-file-marker{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      min-width:18px;
+      padding:1px 4px;
+      border-radius:999px;
+      border:1px solid rgba(148,163,184,.14);
+      background:rgba(148,163,184,.06);
+      color:var(--muted);
+      font-size:9px;
+      font-weight:700;
+      line-height:1.2;
+      text-transform:lowercase;
+      flex:0 0 auto;
+    }
+    .tree-empty{
+      margin:4px 0 0 18px;
+      padding:8px 10px;
+      font-size:11px;
+    }
     .tree-name{
       overflow:hidden;
       text-overflow:ellipsis;
@@ -591,8 +622,22 @@
 
     .editor-shell{
       display:flex;
-      padding:8px 10px 10px;
+      flex-direction:column;
+      flex:1;
       min-height:0;
+      padding:8px 10px 10px;
+      gap:8px;
+    }
+    .editor-pane{
+      display:flex;
+      flex-direction:column;
+      flex:1;
+      min-height:0;
+      min-width:0;
+      border:1px solid var(--line);
+      border-radius:var(--card-radius);
+      background:rgba(15,23,42,.72);
+      overflow:hidden;
     }
     .pane{
       display:flex;
@@ -608,6 +653,7 @@
     .editor-empty{margin:10px}
     .editor-textarea{
       flex:1;
+      width:100%;
       min-height:0;
       border:none;
       padding:12px;
@@ -811,7 +857,7 @@
       color:var(--subtle);
     }
     .message.assistant::before{content:"助手"}
-    .message.user::before{content:"你";color:rgba(224,231,255,.78)}
+    .message.user::before{content:"用户";color:rgba(224,231,255,.78)}
     .message.user{
       margin-left:auto;
       background:linear-gradient(135deg,rgba(110,168,254,.34),rgba(59,130,246,.16)),rgba(15,23,42,.98);
@@ -835,6 +881,206 @@
     .task-item:first-child{padding-top:0;border-top:none}
     .task-title{font-size:13px;font-weight:700}
     .task-status{margin-top:6px;font-size:12px;color:var(--subtle)}
+
+    .panel-header{display:none}
+    .sidebar{display:flex;flex-direction:column;min-height:0}
+    .sidebar-body{flex:1;min-height:0}
+    .sidebar-card,.sidebar-tree-card{flex:1;min-height:0;max-height:100%}
+    .workspace-tree{
+      flex:1;
+      min-height:0;
+      max-height:100%;
+      overflow-y:auto;
+      overflow-x:hidden;
+    }
+    .tree-node,.tree-children{overflow:visible}
+    .tree-row{min-height:24px;padding:0 2px}
+    .tree-main{gap:6px}
+    .tree-children{margin-left:10px;padding-left:6px}
+    .tree-meta{font-size:8px}
+    .tree-file-marker{min-width:16px;padding:1px 3px;font-size:8px}
+
+    .editor{grid-template-rows:auto auto auto minmax(0,1fr)}
+    .assistant{grid-template-rows:minmax(0,1fr)}
+    .assistant-chat-shell{
+      padding:10px;
+      min-height:0;
+      display:grid;
+      grid-template-columns:var(--assistant-nav-width) 10px minmax(0,1fr);
+      gap:0;
+      align-items:stretch;
+    }
+    .session-nav{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      min-height:0;
+      padding-right:10px;
+      border-right:1px solid rgba(148,163,184,.14);
+    }
+    .session-nav-head{display:flex;flex-direction:column;gap:10px}
+    .session-nav-tools{display:flex;gap:8px}
+    .session-nav-btn{flex:1;box-shadow:none}
+    .session-current{
+      display:flex;
+      align-items:center;
+      min-height:44px;
+      padding:10px 12px;
+      border-radius:12px;
+      border:1px dashed rgba(148,163,184,.22);
+      background:rgba(148,163,184,.04);
+      color:var(--muted);
+      font-size:12px;
+      font-weight:700;
+      line-height:1.4;
+    }
+    .session-current.active{
+      background:var(--accent);
+      border-color:rgba(110,168,254,.34);
+      color:var(--text);
+    }
+    .session-current.empty{opacity:.82}
+    .session-nav-scroll{
+      display:flex;
+      flex-direction:column;
+      gap:12px;
+      min-height:0;
+      overflow:auto;
+      padding-right:4px;
+    }
+    .session-list{
+      display:flex;
+      flex-direction:column;
+      gap:8px;
+      min-height:0;
+      overflow:visible;
+      padding-right:0;
+    }
+    .session-card{
+      display:flex;
+      align-items:flex-start;
+      gap:8px;
+      padding:8px;
+      border-radius:12px;
+      border:1px solid transparent;
+      background:rgba(148,163,184,.05);
+      overflow:visible;
+      cursor:default;
+    }
+    .session-card:hover{border-color:var(--line2)}
+    .session-main{
+      flex:1;
+      min-width:0;
+      display:flex;
+      flex-direction:column;
+      align-items:flex-start;
+      gap:4px;
+      padding:0;
+      border:none;
+      background:transparent;
+      color:var(--text);
+      text-align:left;
+      box-shadow:none;
+    }
+    .session-title-row{display:flex;align-items:center;gap:6px;width:100%;min-width:0}
+    .session-title{margin:0;flex:1}
+    .session-chip{
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      padding:2px 6px;
+      border-radius:999px;
+      border:1px solid rgba(110,168,254,.24);
+      background:rgba(110,168,254,.12);
+      font-size:10px;
+      color:#bfdbfe;
+      flex:0 0 auto;
+    }
+    .session-card-actions{display:flex;align-items:center;gap:4px;flex:0 0 auto}
+    .session-inline-btn{
+      min-width:30px;
+      min-height:30px;
+      padding:0 8px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      color:var(--text);
+    }
+    .session-card-menu{position:relative}
+    .session-card-menu summary{
+      list-style:none;
+      display:grid;
+      place-items:center;
+      width:30px;
+      height:30px;
+      border:1px solid var(--line);
+      border-radius:10px;
+      background:rgba(15,23,42,.72);
+      color:var(--text);
+      cursor:pointer;
+    }
+    .session-card-menu summary::-webkit-details-marker{display:none}
+    .session-card-menu[open] summary{
+      background:var(--accent);
+      border-color:rgba(110,168,254,.28);
+    }
+    .session-card-menu-panel{
+      position:absolute;
+      top:calc(100% + 6px);
+      right:0;
+      z-index:60;
+      min-width:120px;
+      display:flex;
+      flex-direction:column;
+      gap:4px;
+      padding:6px;
+      border:1px solid var(--line);
+      border-radius:12px;
+      background:rgba(15,23,42,.98);
+      box-shadow:var(--shadow);
+    }
+    .session-card-menu-panel button{
+      width:100%;
+      justify-content:flex-start;
+      box-shadow:none;
+    }
+    .session-archive-toggle{
+      width:100%;
+      justify-content:flex-start;
+      box-shadow:none;
+    }
+    .assistant-resize-handle{
+      position:relative;
+      width:10px;
+      min-height:0;
+      cursor:col-resize;
+    }
+    .assistant-resize-handle::before{
+      content:"";
+      position:absolute;
+      left:50%;
+      top:10px;
+      bottom:10px;
+      width:2px;
+      transform:translateX(-50%);
+      border-radius:999px;
+      background:rgba(148,163,184,.18);
+      transition:background .16s ease;
+    }
+    .assistant-resize-handle:hover::before,
+    .assistant-resize-handle:focus-visible::before{
+      background:rgba(110,168,254,.52);
+    }
+    body.assistant-resizing{
+      cursor:col-resize;
+      user-select:none;
+    }
+    .assistant-main{
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+      padding-left:10px;
+    }
+    .assistant-main>.chat-card{flex:1}
 
     @keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 
@@ -926,6 +1172,24 @@
       .change-link{align-items:flex-start}
       .change-link-badges{padding-top:1px}
     }
+
+    @media (max-width:860px){
+      .assistant-chat-shell{
+        grid-template-columns:1fr;
+        gap:0;
+      }
+      .session-nav{
+        padding-right:0;
+        padding-bottom:10px;
+        border-right:none;
+        border-bottom:1px solid rgba(148,163,184,.14);
+      }
+      .assistant-resize-handle{display:none}
+      .assistant-main{
+        padding-left:0;
+        padding-top:10px;
+      }
+    }
   </style>
 </head>
 <body>
@@ -939,8 +1203,7 @@
       </div>
       <div class="sidebar-body">
         <div class="card sidebar-card sidebar-tree-card">
-          <div class="section-head">
-            <h3>工作区文件</h3>
+          <div class="section-head workspace-tree-head">
             <button id="refreshTreeBtn" class="secondary" type="button">刷新</button>
           </div>
           <div id="workspaceMeta" class="mono">尚未选择会话</div>
@@ -963,7 +1226,7 @@
 
       <div class="toolbar">
         <div class="toolbar-edge">
-          <button id="toggleLeftSidebarBtn" class="secondary toolbar-toggle" type="button" aria-controls="sidebarPanel" aria-expanded="true" aria-label="折叠左侧工作区侧栏">工作区</button>
+          <button id="toggleLeftSidebarBtn" class="secondary toolbar-toggle" type="button" aria-controls="sidebarPanel" aria-expanded="true" aria-label="折叠左侧工作区侧栏">文件</button>
         </div>
         <div class="toolbar-main">
           <div id="editorTitle" class="editor-title">本地代码工作台</div>
@@ -1009,8 +1272,8 @@
                     </div>
                   </label>
                   <div class="setting-pills">
-                    <label class="toggle-chip"><input id="allowWriteInput" type="checkbox"><span>写盘</span></label>
-                    <label class="toggle-chip"><input id="allowShellInput" type="checkbox"><span>命令</span></label>
+                    <label class="toggle-chip"><input id="allowWriteInput" type="checkbox"><span>允许写盘</span></label>
+                    <label class="toggle-chip"><input id="allowShellInput" type="checkbox"><span>允许命令</span></label>
                     <label class="toggle-chip"><input id="autoRunTestsInput" type="checkbox"><span>自动测试</span></label>
                   </div>
                   <div class="settings-inline">
@@ -1042,16 +1305,15 @@
 
             <div id="drawerEvalPanel" class="drawer-panel" hidden>
               <div class="section-head"><h3>最近评测</h3></div>
-              <div id="evalSummary" class="empty">尚无评测结果</div>
+              <div id="evalSummary" class="empty">暂无评测结果</div>
             </div>
           </div>
         </div>
       </section>
 
-      <div id="fileTabs" class="file-tabs"></div>
-
       <div class="editor-shell">
-        <div class="pane">
+        <div id="fileTabs" class="file-tabs"></div>
+        <div class="editor-pane">
           <div id="editorEmpty" class="empty editor-empty">点击左侧文件树中的文件开始查看或编辑。支持多文件标签切换。</div>
           <textarea id="editorTextarea" class="editor-textarea" spellcheck="false" hidden></textarea>
           <div id="editorStatus" class="editor-statusbar">尚未打开文件</div>
@@ -1070,7 +1332,7 @@
         <div id="sessionRail" class="session-rail" aria-label="会话管理">
           <button id="newSessionBtn" class="secondary session-rail-btn" type="button" aria-label="新建会话">+</button>
           <div id="currentSessionRail" class="session-rail-current empty" role="status" aria-live="polite" aria-label="尚未选择会话" title="尚未选择会话">当前</div>
-          <button id="deleteSessionBtn" class="danger session-rail-btn session-rail-delete" type="button" aria-label="删除当前会话">-</button>
+          <button id="deleteSessionBtn" class="danger session-rail-btn session-rail-delete" type="button" aria-label="删除当前会话" hidden>-</button>
         </div>
         <div class="assistant-main">
           <div class="card assistant-session-card">
@@ -1095,8 +1357,8 @@
             <div class="composer">
               <textarea id="messageInput" placeholder="输入你的目标，例如：分析登录模块并修改错误处理，然后补充最小测试。Enter 发送，Shift+Enter 换行。"></textarea>
               <div class="row" style="margin-top:10px">
-                <button id="sendBtn" type="button">发送任务</button>
-                <button id="stopBtn" class="warn" type="button">停止流式</button>
+                <button id="sendBtn" type="button">发送</button>
+                <button id="stopBtn" class="warn" type="button" hidden aria-hidden="true" tabindex="-1">停止 Stop</button>
               </div>
               <div id="statusBar" class="status-bar"></div>
             </div>
@@ -1107,10 +1369,136 @@
   </div>
   <script>
     const LAYOUT_STORAGE_KEY = "codeinsight.web.layout.v1";
+    const SESSION_NAV_WIDTH_STORAGE_KEY = "codeinsight.web.sessionNavWidth.v1";
     const DEFAULT_MAX_TURNS = 8;
     const MIN_MAX_TURNS = 1;
     const MAX_MAX_TURNS = 20;
+    const MIN_SESSION_NAV_WIDTH = 220;
+    const MAX_SESSION_NAV_WIDTH = 360;
+    const DEFAULT_SESSION_NAV_WIDTH = 248;
+    const CHANGE_SUMMARY_DEBOUNCE_MS = 560;
+    const TREE_ROOT_PATH = ".";
+    const FILE_TYPE_MARKERS = {
+      ".py": "py",
+      ".js": "js",
+      ".ts": "ts",
+      ".tsx": "tsx",
+      ".jsx": "jsx",
+      ".json": "{}",
+      ".html": "<>",
+      ".css": "css",
+      ".md": "md",
+      ".yml": "yml",
+      ".yaml": "yml",
+      ".sh": "$",
+      ".txt": "..",
+      default: "::"
+    };
 
+    (function bootstrapPanels() {
+      const toolbarActions = document.querySelector(".toolbar-actions");
+      const moreMenu = document.getElementById("toolbarMoreMenu");
+      const reloadBtn = document.getElementById("reloadFileBtn");
+      const saveBtn = document.getElementById("saveFileBtn");
+      if (toolbarActions && moreMenu && reloadBtn && saveBtn) {
+        reloadBtn.textContent = "重载";
+        saveBtn.textContent = "保存";
+        toolbarActions.insertBefore(reloadBtn, moreMenu);
+        toolbarActions.insertBefore(saveBtn, moreMenu);
+      }
+
+      const leftToggleBtn = document.getElementById("toggleLeftSidebarBtn");
+      const rightToggleBtn = document.getElementById("toggleRightSidebarBtn");
+      if (leftToggleBtn) leftToggleBtn.textContent = "文件";
+      if (rightToggleBtn) rightToggleBtn.textContent = "会话";
+
+      const refreshTreeBtn = document.getElementById("refreshTreeBtn");
+      if (refreshTreeBtn) refreshTreeBtn.textContent = "刷新";
+
+      document.querySelectorAll(".panel-header").forEach(header => header.remove());
+
+      const shell = document.querySelector(".assistant-chat-shell");
+      const rail = document.getElementById("sessionRail");
+      const assistantMain = shell?.querySelector(".assistant-main");
+      const listCard = assistantMain?.querySelector(".assistant-session-card");
+      const chatCard = assistantMain?.querySelector(".chat-card");
+      const sessionList = document.getElementById("sessionList");
+      const newSessionBtn = document.getElementById("newSessionBtn");
+      const deleteSessionBtn = document.getElementById("deleteSessionBtn");
+      const currentSessionRail = document.getElementById("currentSessionRail");
+      if (!shell || !rail || !assistantMain || !chatCard || !sessionList || !newSessionBtn || !deleteSessionBtn || !currentSessionRail) {
+        return;
+      }
+
+      shell.id = "assistantChatShell";
+      rail.className = "session-nav";
+      assistantMain.innerHTML = "";
+      assistantMain.appendChild(chatCard);
+      if (listCard) listCard.remove();
+
+      newSessionBtn.textContent = "新建";
+      newSessionBtn.className = "secondary session-nav-btn";
+      deleteSessionBtn.textContent = "删除";
+      deleteSessionBtn.className = "danger session-nav-btn";
+      deleteSessionBtn.hidden = true;
+      currentSessionRail.className = "session-current empty";
+
+      const searchInput = document.createElement("input");
+      searchInput.id = "sessionSearchInput";
+      searchInput.type = "text";
+      searchInput.placeholder = "搜索会话";
+
+      const sessionNavTools = document.createElement("div");
+      sessionNavTools.className = "session-nav-tools";
+      sessionNavTools.append(newSessionBtn);
+
+      const sessionNavHead = document.createElement("div");
+      sessionNavHead.className = "session-nav-head";
+      sessionNavHead.append(sessionNavTools, searchInput, currentSessionRail);
+
+      const activeGroup = document.createElement("div");
+      activeGroup.className = "session-group";
+      activeGroup.innerHTML = `
+        <div class="session-group-head">
+          <div class="session-group-title">未归档</div>
+          <div class="session-group-note">点击进入会话；归档或恢复直接操作，其余动作请使用更多菜单。</div>
+        </div>
+      `;
+      activeGroup.appendChild(sessionList);
+
+      const archivedGroup = document.createElement("div");
+      archivedGroup.className = "session-group";
+      const toggleArchivedBtn = document.createElement("button");
+      toggleArchivedBtn.id = "toggleArchivedBtn";
+      toggleArchivedBtn.className = "secondary session-archive-toggle";
+      toggleArchivedBtn.type = "button";
+      toggleArchivedBtn.setAttribute("aria-expanded", "false");
+      toggleArchivedBtn.textContent = "已归档 (0)";
+      const archivedSessionList = document.createElement("div");
+      archivedSessionList.id = "archivedSessionList";
+      archivedSessionList.className = "session-list";
+      archivedSessionList.hidden = true;
+      archivedGroup.append(toggleArchivedBtn, archivedSessionList);
+
+      const sessionNavScroll = document.createElement("div");
+      sessionNavScroll.className = "session-nav-scroll";
+      sessionNavScroll.append(activeGroup, archivedGroup);
+
+      rail.innerHTML = "";
+      rail.append(sessionNavHead, sessionNavScroll);
+
+      const resizeHandle = document.createElement("div");
+      resizeHandle.id = "assistantResizeHandle";
+      resizeHandle.className = "assistant-resize-handle";
+      resizeHandle.setAttribute("role", "separator");
+      resizeHandle.setAttribute("aria-orientation", "vertical");
+      resizeHandle.setAttribute("aria-label", "调整会话导航宽度");
+      resizeHandle.tabIndex = 0;
+
+      if (!shell.querySelector("#assistantResizeHandle")) {
+        shell.insertBefore(resizeHandle, assistantMain);
+      }
+    })();
     const state = {
       sessions: [],
       currentSession: null,
@@ -1123,23 +1511,35 @@
       expanded: { ".": true },
       openFiles: [],
       activeFilePath: "",
+      workspaceTreeModel: null,
+      workspaceNodeIndex: new Map(),
       pendingPickedFilePath: "",
       drawerPanel: "settings",
       drawerOpen: false,
+      sessionSearchQuery: "",
+      archivedExpanded: false,
+      sessionNavWidth: DEFAULT_SESSION_NAV_WIDTH,
       leftCollapsed: false,
       rightCollapsed: false
     };
+    let fileRevisionCounter = 0;
+    let changeSummaryTimer = null;
 
     const $ = id => document.getElementById(id);
     const els = {
       layout: $("appLayout"),
       sidebarPanel: $("sidebarPanel"),
       assistantPanel: $("assistantPanel"),
+      assistantChatShell: $("assistantChatShell"),
+      assistantResizeHandle: $("assistantResizeHandle"),
       toggleLeftSidebarBtn: $("toggleLeftSidebarBtn"),
       toggleRightSidebarBtn: $("toggleRightSidebarBtn"),
       toolbarMoreMenu: $("toolbarMoreMenu"),
       currentSessionRail: $("currentSessionRail"),
+      sessionSearchInput: $("sessionSearchInput"),
       sessionList: $("sessionList"),
+      archivedSessionList: $("archivedSessionList"),
+      toggleArchivedBtn: $("toggleArchivedBtn"),
       workspaceMeta: $("workspaceMeta"),
       workspaceTree: $("workspaceTree"),
       refreshTreeBtn: $("refreshTreeBtn"),
@@ -1192,9 +1592,10 @@
     const drawerMeta = {
       settings: { title: "会话设置", subtitle: "绑定工作区、权限和测试参数。" },
       tasks: { title: "任务看板", subtitle: "查看当前会话拆解出的任务状态与摘要。" },
-      tests: { title: "最近一次测试", subtitle: "保留最近一次测试结果，并支持立即重跑。" },
+      tests: { title: "最近测试", subtitle: "保留最近一次测试结果，并支持立即重跑。" },
       eval: { title: "最近评测", subtitle: "查看最新评测摘要，不打断当前对话。" }
     };
+
 
     function setStatus(text) {
       els.statusBar.textContent = text || "";
@@ -1229,7 +1630,6 @@
         minute: "2-digit"
       });
     }
-
     function normPath(value) {
       return String(value || "").replace(/\\/g, "/").replace(/^\.\/+/, "");
     }
@@ -1237,6 +1637,33 @@
     function baseName(value) {
       const parts = normPath(value).split("/");
       return parts[parts.length - 1] || value;
+    }
+
+    function escapeSelector(value) {
+      if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(value || ""));
+      return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+    }
+
+    function nextFileRevision() {
+      fileRevisionCounter += 1;
+      return fileRevisionCounter;
+    }
+
+    function hydrateOpenFile(file) {
+      const baseRevision = Number(file?.originalRevision || file?.contentRevision || 0) || nextFileRevision();
+      return {
+        path: normPath(file?.path),
+        name: file?.name || baseName(file?.path),
+        content: String(file?.content || ""),
+        originalContent: String(file?.originalContent ?? file?.content ?? ""),
+        contentHash: String(file?.contentHash || ""),
+        dirty: !!file?.dirty,
+        truncated: !!file?.truncated,
+        originalRevision: Number(file?.originalRevision) || baseRevision,
+        contentRevision: Number(file?.contentRevision) || baseRevision,
+        diffCacheKey: String(file?.diffCacheKey || ""),
+        diffCache: file?.diffCache || null
+      };
     }
 
     function normalizeMaxTurns(value) {
@@ -1247,16 +1674,28 @@
       return parsed;
     }
 
+    function clampSessionNavWidth(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return DEFAULT_SESSION_NAV_WIDTH;
+      return Math.max(MIN_SESSION_NAV_WIDTH, Math.min(MAX_SESSION_NAV_WIDTH, Math.round(parsed)));
+    }
+
     function readLayoutState() {
       try {
         const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
-        if (!raw) return;
-        const saved = JSON.parse(raw);
-        state.leftCollapsed = !!saved.leftCollapsed;
-        state.rightCollapsed = !!saved.rightCollapsed;
+        if (raw) {
+          const saved = JSON.parse(raw);
+          state.leftCollapsed = !!saved.leftCollapsed;
+          state.rightCollapsed = !!saved.rightCollapsed;
+        }
       } catch {
         state.leftCollapsed = false;
         state.rightCollapsed = false;
+      }
+      try {
+        state.sessionNavWidth = clampSessionNavWidth(localStorage.getItem(SESSION_NAV_WIDTH_STORAGE_KEY));
+      } catch {
+        state.sessionNavWidth = DEFAULT_SESSION_NAV_WIDTH;
       }
     }
 
@@ -1271,10 +1710,16 @@
         );
       } catch {
       }
+      try {
+        localStorage.setItem(SESSION_NAV_WIDTH_STORAGE_KEY, String(clampSessionNavWidth(state.sessionNavWidth)));
+      } catch {
+      }
     }
 
     function applyLayoutState() {
       const bothCollapsed = state.leftCollapsed && state.rightCollapsed;
+      state.sessionNavWidth = clampSessionNavWidth(state.sessionNavWidth);
+      els.assistantPanel.style.setProperty("--assistant-nav-width", `${state.sessionNavWidth}px`);
       els.layout.classList.toggle("left-collapsed", state.leftCollapsed);
       els.layout.classList.toggle("right-collapsed", state.rightCollapsed);
       els.layout.classList.toggle("both-collapsed", bothCollapsed);
@@ -1324,6 +1769,25 @@
       if (shouldRefocus) {
         requestAnimationFrame(() => els.toggleRightSidebarBtn.focus({ preventScroll: true }));
       }
+    }
+
+    function startAssistantResize(event) {
+      if (window.matchMedia("(max-width: 860px)").matches || state.rightCollapsed) return;
+      event.preventDefault();
+      const shellRect = els.assistantChatShell.getBoundingClientRect();
+      const move = moveEvent => {
+        state.sessionNavWidth = clampSessionNavWidth(moveEvent.clientX - shellRect.left);
+        applyLayoutState();
+      };
+      const stop = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", stop);
+        document.body.classList.remove("assistant-resizing");
+        persistLayoutState();
+      };
+      document.body.classList.add("assistant-resizing");
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", stop);
     }
 
     function sessionSettings() {
@@ -1410,22 +1874,29 @@
     function ensureExpanded(path) {
       const parts = normPath(path).split("/");
       let current = "";
+      let changed = false;
       for (let index = 0; index < parts.length - 1; index += 1) {
         current = current ? `${current}/${parts[index]}` : parts[index];
+        if (state.expanded[current] === false) changed = true;
         state.expanded[current] = true;
       }
+      return changed;
     }
 
     function upsertOpenFile(file) {
-      const index = state.openFiles.findIndex(item => item.path === file.path);
-      if (index >= 0) state.openFiles[index] = { ...state.openFiles[index], ...file };
-      else state.openFiles.push(file);
-      state.activeFilePath = file.path;
-      ensureExpanded(file.path);
+      const normalizedPath = normPath(file.path);
+      const index = state.openFiles.findIndex(item => item.path === normalizedPath);
+      const merged = hydrateOpenFile(index >= 0 ? { ...state.openFiles[index], ...file, path: normalizedPath } : { ...file, path: normalizedPath });
+      if (index >= 0) state.openFiles[index] = merged;
+      else state.openFiles.push(merged);
+      state.activeFilePath = merged.path;
+      ensureExpanded(merged.path);
+      return merged;
     }
 
     function setStreamingControls(busy) {
-      sendBtnEl.disabled = busy;
+      updateSendButtonState(busy);
+      sendBtnEl.disabled = false;
       runTestsBtnEl.disabled = busy;
       saveSettingsBtnEl.disabled = busy;
       els.newSessionBtn.disabled = busy;
@@ -1434,10 +1905,11 @@
       els.openFileBtn.disabled = busy;
       els.messageInput.disabled = busy;
       els.refreshTreeBtn.disabled = busy;
-      els.stopBtn.disabled = !busy;
+      els.stopBtn.disabled = true;
+      els.stopBtn.hidden = true;
       els.reloadFileBtn.disabled = busy || !getActiveFile();
       els.saveFileBtn.disabled = busy || !canSaveActiveFile();
-      renderEditor();
+      renderEditor({ refreshSummary: false });
     }
 
     async function fetchJson(url, options = {}) {
@@ -1468,6 +1940,7 @@
       els.currentSessionRail.classList.toggle("empty", !hasSession);
       els.currentSessionRail.setAttribute("aria-label", title);
       els.currentSessionRail.title = title;
+      els.currentSessionRail.textContent = hasSession ? state.currentSession.title : "未选择会话";
     }
 
     function resetWorkspaceState() {
@@ -1475,6 +1948,8 @@
       state.expanded = { ".": true };
       state.openFiles = [];
       state.activeFilePath = "";
+      state.workspaceTreeModel = null;
+      state.workspaceNodeIndex = new Map();
       renderWorkspaceMeta();
       renderWorkspaceTree();
       renderFileTabs();
@@ -1494,59 +1969,157 @@
       return state.sessions.filter(session => !normPath(session.workspace_root));
     }
 
+    function sortSessions(items) {
+      return [...items].sort((left, right) => {
+        if (!!left.pinned !== !!right.pinned) return Number(!!right.pinned) - Number(!!left.pinned);
+        return String(right.updated_at || "").localeCompare(String(left.updated_at || ""));
+      });
+    }
+
+    function sessionQuery() {
+      return String(state.sessionSearchQuery || "").trim().toLowerCase();
+    }
+
+    function sessionMatchesQuery(session, query = sessionQuery()) {
+      if (!query) return true;
+      const haystacks = [
+        session.title,
+        session.workspace_root,
+        formatWorkspaceLabel(session.workspace_root)
+      ];
+      return haystacks.some(item => String(item || "").toLowerCase().includes(query));
+    }
+
     function preferredSession(filterRoot = currentWorkspaceFilter()) {
       const scoped = filterRoot ? sessionsForWorkspace(filterRoot) : qaSessions();
-      return scoped[0] || state.sessions[0] || null;
+      const activeScoped = sortSessions(scoped.filter(session => !session.archived));
+      const activeAll = sortSessions(state.sessions.filter(session => !session.archived));
+      const archivedScoped = sortSessions(scoped.filter(session => session.archived));
+      const archivedAll = sortSessions(state.sessions.filter(session => session.archived));
+      return activeScoped[0] || activeAll[0] || archivedScoped[0] || archivedAll[0] || null;
     }
 
-    function renderSessionCards(items, { emptyText, showWorkspace = false } = {}) {
-      if (!items.length) return `<div class="empty">${escapeHtml(emptyText || "暂无会话")}</div>`;
-      return items.map(session => `
-        <div class="session-card ${state.currentSession?.session_id === session.session_id ? "active" : ""}" data-session-id="${escapeHtml(session.session_id)}">
-          <div class="session-title">${escapeHtml(session.title)}</div>
-          <div class="session-meta">${escapeHtml(formatTimestamp(session.updated_at))}</div>
-          ${showWorkspace ? `<div class="session-meta">${escapeHtml(formatWorkspaceLabel(session.workspace_root))}</div>` : ""}
-        </div>
-      `).join("");
-    }
-
-    function renderSessionGroup(title, note, items, { emptyText, showWorkspace = false } = {}) {
+    function renderSessionItem(session, { archived = false } = {}) {
+      const active = state.currentSession?.session_id === session.session_id ? "active" : "";
+      const pinLabel = session.pinned ? "取消置顶" : "置顶";
+      const archiveLabel = archived ? "恢复" : "归档";
+      const workspaceLabel = session.workspace_root ? formatWorkspaceLabel(session.workspace_root) : "问答模式";
       return `
-        <section class="session-group">
-          <div class="session-group-head">
-            <div>
-              <div class="session-group-title">${escapeHtml(title)}</div>
-              <div class="session-group-note">${escapeHtml(note)}</div>
+        <div class="session-card ${active}" data-session-id="${escapeHtml(session.session_id)}">
+          <button class="session-main" type="button" data-session-open="${escapeHtml(session.session_id)}" title="${escapeHtml(session.title)}">
+            <div class="session-title-row">
+              <div class="session-title">${escapeHtml(session.title)}</div>
+              ${session.pinned ? '<span class="session-chip">置顶</span>' : ""}
             </div>
+            <div class="session-meta">${escapeHtml(formatTimestamp(session.updated_at))}</div>
+            <div class="session-meta">${escapeHtml(workspaceLabel)}</div>
+          </button>
+          <div class="session-card-actions">
+            <button
+              class="ghost session-inline-btn"
+              type="button"
+              data-session-archive="${escapeHtml(session.session_id)}"
+              aria-label="${escapeHtml(`${archiveLabel}会话`)}"
+              title="${escapeHtml(archiveLabel)}"
+            >${escapeHtml(archiveLabel)}</button>
+            <details class="session-card-menu" data-session-menu>
+              <summary aria-label="更多操作" title="更多操作">⋯</summary>
+              <div class="session-card-menu-panel">
+                <button class="secondary" type="button" data-session-pin="${escapeHtml(session.session_id)}">${escapeHtml(pinLabel)}</button>
+                <button class="secondary" type="button" data-session-rename="${escapeHtml(session.session_id)}">重命名</button>
+                <button class="danger" type="button" data-session-delete="${escapeHtml(session.session_id)}">删除</button>
+              </div>
+            </details>
           </div>
-          ${renderSessionCards(items, { emptyText, showWorkspace })}
-        </section>
+        </div>
       `;
     }
 
-    function renderSessions() {
-      if (!state.sessions.length) {
-        els.sessionList.innerHTML = '<div class="empty">暂无会话。先选择工作区或进入问答模式，再创建会话。</div>';
-        return;
-      }
-      const filterRoot = currentWorkspaceFilter();
-      const workspaceSessions = filterRoot ? sessionsForWorkspace(filterRoot) : [];
-      const globalQaSessions = qaSessions();
-      const workspaceTitle = filterRoot ? "当前工作区会话" : "尚未选择工作区";
-      const workspaceNote = filterRoot
-        ? formatWorkspaceLabel(filterRoot)
-        : "输入或选择工作区后，这里只显示对应目录的会话。";
-      els.sessionList.innerHTML = [
-        renderSessionGroup(workspaceTitle, workspaceNote, workspaceSessions, {
-          emptyText: filterRoot ? "当前工作区暂无会话。" : "先选择工作区后查看绑定会话。"
-        }),
-        renderSessionGroup("问答模式会话池", "全局共享，不绑定本地目录。", globalQaSessions, {
-          emptyText: "暂无问答模式会话。"
-        })
-      ].join("");
-      els.sessionList.querySelectorAll(".session-card").forEach(card => {
-        card.addEventListener("click", () => loadSession(card.dataset.sessionId).catch(error => setStatus(error.message)));
+    function renderSessionItems(items, options = {}) {
+      if (!items.length) return `<div class="empty">${escapeHtml(options.emptyText || "暂无会话")}</div>`;
+      return items.map(session => renderSessionItem(session, options)).join("");
+    }
+
+    function closeSessionMenu(target) {
+      target?.closest("[data-session-menu]")?.removeAttribute("open");
+    }
+
+    function wireSessionListActions(container, { archived = false } = {}) {
+      if (!container) return;
+      container.querySelectorAll("[data-session-open]").forEach(button => {
+        button.addEventListener("click", () => loadSession(button.dataset.sessionOpen).catch(error => setStatus(error.message)));
       });
+      container.querySelectorAll("[data-session-archive]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.stopPropagation();
+          const nextArchived = !archived;
+          updateSessionAttrs(button.dataset.sessionArchive, { archived: nextArchived })
+            .then(updated => {
+              if (updated) setStatus(nextArchived ? "会话已归档。" : "会话已恢复。");
+            })
+            .catch(error => setStatus(error.message));
+        });
+      });
+      container.querySelectorAll("[data-session-pin]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.stopPropagation();
+          closeSessionMenu(button);
+          const session = state.sessions.find(item => item.session_id === button.dataset.sessionPin);
+          if (!session) return;
+          updateSessionAttrs(session.session_id, { pinned: !session.pinned })
+            .then(updated => {
+              if (updated) setStatus(session.pinned ? "已取消置顶。" : "已置顶。");
+            })
+            .catch(error => setStatus(error.message));
+        });
+      });
+      container.querySelectorAll("[data-session-rename]").forEach(button => {
+        button.addEventListener("click", async event => {
+          event.stopPropagation();
+          closeSessionMenu(button);
+          const session = state.sessions.find(item => item.session_id === button.dataset.sessionRename);
+          if (!session) return;
+          const nextTitle = window.prompt("重命名会话", session.title || "");
+          if (nextTitle === null) return;
+          try {
+            const updated = await updateSessionAttrs(session.session_id, { title: nextTitle.trim() });
+            if (updated) setStatus("会话名称已更新。");
+          } catch (error) {
+            setStatus(error.message || "重命名会话失败。");
+          }
+        });
+      });
+      container.querySelectorAll("[data-session-delete]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.stopPropagation();
+          closeSessionMenu(button);
+          deleteSessionById(button.dataset.sessionDelete).catch(error => setStatus(error.message));
+        });
+      });
+    }
+
+    function renderSessions() {
+      const query = sessionQuery();
+      const activeSessions = sortSessions(state.sessions.filter(session => !session.archived && sessionMatchesQuery(session, query)));
+      const archivedSessions = sortSessions(state.sessions.filter(session => session.archived && sessionMatchesQuery(session, query)));
+
+      els.sessionList.innerHTML = renderSessionItems(activeSessions, {
+        emptyText: query ? "没有匹配的未归档会话。" : "暂无未归档会话。"
+      });
+      wireSessionListActions(els.sessionList, { archived: false });
+
+      els.archivedSessionList.hidden = !state.archivedExpanded;
+      els.toggleArchivedBtn.setAttribute("aria-expanded", String(state.archivedExpanded));
+      els.toggleArchivedBtn.textContent = `已归档 (${archivedSessions.length})`;
+      if (state.archivedExpanded) {
+        els.archivedSessionList.innerHTML = renderSessionItems(archivedSessions, {
+          archived: true,
+          emptyText: query ? "没有匹配的归档会话。" : "暂无归档会话。"
+        });
+        wireSessionListActions(els.archivedSessionList, { archived: true });
+      } else {
+        els.archivedSessionList.innerHTML = "";
+      }
     }
 
     function renderMessages(session) {
@@ -1578,7 +2151,6 @@
         </div>
       `).join("");
     }
-
     function renderTestSummary(summary) {
       if (!summary) {
         els.testSummary.innerHTML = '<div class="empty">尚未运行测试</div>';
@@ -1595,7 +2167,7 @@
 
     function renderEval(payload) {
       if (!payload?.payload) {
-        els.evalSummary.innerHTML = '<div class="empty">尚无评测结果</div>';
+        els.evalSummary.innerHTML = '<div class="empty">暂无评测结果</div>';
         return;
       }
       const summary = payload.payload.summary || {};
@@ -1617,8 +2189,8 @@
         return;
       }
       const lines = [
-        `工作区: ${formatWorkspaceLabel(state.currentSession.workspace_root)}`,
-        `条目数: ${state.workspaceEntries.length}`
+        `工作区：${formatWorkspaceLabel(state.currentSession.workspace_root)}`, 
+        `条目数：${state.workspaceEntries.length}`
       ];
       if (note) lines.push(note);
       els.workspaceMeta.textContent = lines.join("\n");
@@ -1630,20 +2202,43 @@
       return parts.pop().slice(0, 4).toUpperCase();
     }
 
-    function buildTree(entries) {
-      const roots = [];
+    function fileMarkerLabel(name) {
+      const lowerName = String(name || "").toLowerCase();
+      const dotIndex = lowerName.lastIndexOf(".");
+      const extension = dotIndex >= 0 ? lowerName.slice(dotIndex) : "";
+      return FILE_TYPE_MARKERS[extension] || FILE_TYPE_MARKERS.default;
+    }
+
+    function buildWorkspaceTreeModel(entries) {
+      const rootNode = {
+        path: TREE_ROOT_PATH,
+        name: baseName(state.currentSession?.workspace_root || "") || "workspace",
+        is_dir: true,
+        root: true,
+        depth: 0,
+        children: []
+      };
+      const nodeIndex = new Map([[TREE_ROOT_PATH, rootNode]]);
       for (const entry of entries) {
         const parts = normPath(entry.path).split("/").filter(Boolean);
-        let siblings = roots;
+        let siblings = rootNode.children;
         let current = "";
         for (let index = 0; index < parts.length; index += 1) {
           const part = parts[index];
           const isLast = index === parts.length - 1;
           current = current ? `${current}/${part}` : part;
-          let node = siblings.find(item => item.path === current);
+          let node = nodeIndex.get(current);
           if (!node) {
-            node = { path: current, name: part, is_dir: isLast ? !!entry.is_dir : true, children: [] };
+            node = {
+              path: current,
+              name: part,
+              is_dir: isLast ? !!entry.is_dir : true,
+              root: false,
+              depth: index + 1,
+              children: []
+            };
             siblings.push(node);
+            nodeIndex.set(current, node);
           }
           if (isLast) node.is_dir = !!entry.is_dir;
           else node.is_dir = true;
@@ -1657,41 +2252,96 @@
         });
         nodes.forEach(node => sortNodes(node.children));
       };
-      sortNodes(roots);
-      return roots;
+      sortNodes(rootNode.children);
+      state.workspaceTreeModel = rootNode;
+      state.workspaceNodeIndex = nodeIndex;
+      return rootNode;
     }
 
-    function renderTreeNodes(nodes, depth = 0) {
+    function getWorkspaceTreeModel() {
+      return state.workspaceTreeModel || buildWorkspaceTreeModel(state.workspaceEntries);
+    }
+
+    function renderTreeNodes(nodes) {
       return nodes.map(node => {
-        const open = node.is_dir && state.expanded[node.path] !== false;
-        const active = state.activeFilePath === node.path ? "active" : "";
-        const toggle = node.is_dir
-          ? `<button class="tree-toggle" type="button" data-dir="${escapeHtml(node.path)}" aria-label="${open ? "折叠目录" : "展开目录"}">${open ? "v" : ">"}</button>`
-          : '<span class="tree-spacer"></span>';
+        const open = state.expanded[node.path] !== false;
+        const active = !node.is_dir && state.activeFilePath === node.path ? "active" : "";
         const actionAttr = node.is_dir
-          ? `data-dir="${escapeHtml(node.path)}"`
-          : `data-file="${escapeHtml(node.path)}"`;
-        const iconClass = node.is_dir ? `tree-icon folder${open ? " open" : ""}` : "tree-icon file";
-        const meta = node.is_dir ? "目录" : fileMetaLabel(node.name);
-        const children = node.is_dir && open && node.children.length
-          ? `<div class="tree-children">${renderTreeNodes(node.children, depth + 1)}</div>`
-          : "";
+          ? `data-tree-dir="${escapeHtml(node.path)}"`
+          : `data-tree-file="${escapeHtml(node.path)}"`;
+        const marker = node.is_dir
+          ? ""
+          : `<span class="tree-file-marker" aria-hidden="true">${escapeHtml(fileMarkerLabel(node.name))}</span>`;
+        const childrenBody = open && node.children.length
+          ? renderTreeNodes(node.children)
+          : node.root && open
+            ? '<div class="empty tree-empty">当前工作区暂无可显示文件</div>'
+            : "";
+        const meta = node.is_dir ? "" : `<span class="tree-meta">${escapeHtml(fileMetaLabel(node.name))}</span>`;
         return `
-          <div class="tree-node">
-            <div class="tree-row ${active}" style="padding-left:${6 + depth * 12}px">
-              ${toggle}
-              <button class="tree-action" type="button" ${actionAttr} title="${escapeHtml(node.path)}">
+          <div class="tree-node" data-tree-node="${escapeHtml(node.path)}" data-open="${open ? "true" : "false"}">
+            <div class="tree-row ${node.root ? "root" : node.is_dir ? "directory" : "file"} ${active}" data-tree-row-path="${escapeHtml(node.path)}" style="padding-left:${6 + node.depth * 12}px">
+              <button class="tree-toggle" type="button" data-tree-toggle="${escapeHtml(node.path)}" aria-label="${open ? "折叠目录" : "展开目录"}">${open ? "v" : ">"}</button>
+              <button class="tree-action" type="button" ${actionAttr} title="${escapeHtml(node.root ? state.currentSession?.workspace_root || node.name : node.path)}">
                 <span class="tree-main">
-                  <span class="${iconClass}" aria-hidden="true"></span>
+                  ${marker}
                   <span class="tree-name">${escapeHtml(node.name)}</span>
                 </span>
-                <span class="tree-meta">${escapeHtml(meta)}</span>
+                ${meta}
               </button>
             </div>
-            ${children}
+            <div class="tree-children" data-tree-children ${open ? "" : "hidden"}>${childrenBody}</div>
           </div>
         `;
       }).join("");
+    }
+
+    function syncWorkspaceSelection() {
+      els.workspaceTree.querySelectorAll(".tree-row.active").forEach(element => element.classList.remove("active"));
+      if (!state.activeFilePath) return;
+      const target = els.workspaceTree.querySelector(`[data-tree-row-path="${escapeSelector(state.activeFilePath)}"]`);
+      target?.classList.add("active");
+    }
+
+    function updateTreeNodeDom(path) {
+      const normalizedPath = normPath(path || TREE_ROOT_PATH) || TREE_ROOT_PATH;
+      const node = state.workspaceNodeIndex.get(normalizedPath);
+      if (!node) {
+        renderWorkspaceTree();
+        return;
+      }
+      const treeNode = els.workspaceTree.querySelector(`[data-tree-node="${escapeSelector(normalizedPath)}"]`);
+      if (!treeNode) {
+        renderWorkspaceTree();
+        return;
+      }
+      const open = state.expanded[normalizedPath] !== false;
+      treeNode.dataset.open = open ? "true" : "false";
+      const toggle = treeNode.querySelector(`[data-tree-toggle="${escapeSelector(normalizedPath)}"]`) || treeNode.querySelector("[data-tree-toggle]");
+      if (toggle) {
+        toggle.textContent = open ? "v" : ">";
+        toggle.setAttribute("aria-label", open ? "折叠目录" : "展开目录");
+      }
+      const children = treeNode.querySelector("[data-tree-children]");
+      if (!children) return;
+      if (!open) {
+        children.hidden = true;
+        children.innerHTML = "";
+        return;
+      }
+      children.hidden = false;
+      children.innerHTML = node.children.length
+        ? renderTreeNodes(node.children)
+        : node.root
+          ? '<div class="empty tree-empty">当前工作区暂无可显示文件</div>'
+          : "";
+      syncWorkspaceSelection();
+    }
+
+    function toggleTreeNode(path) {
+      const normalizedPath = normPath(path || TREE_ROOT_PATH) || TREE_ROOT_PATH;
+      state.expanded[normalizedPath] = state.expanded[normalizedPath] === false;
+      updateTreeNodeDom(normalizedPath);
     }
 
     function renderWorkspaceTree() {
@@ -1703,20 +2353,32 @@
         els.workspaceTree.innerHTML = '<div class="empty">当前会话没有工作区，无法浏览目录。</div>';
         return;
       }
-      if (!state.workspaceEntries.length) {
-        els.workspaceTree.innerHTML = '<div class="empty">文件树为空。点击“刷新”重新拉取，或确认工作区路径是否正确。</div>';
+      const rootNode = getWorkspaceTreeModel();
+      els.workspaceTree.innerHTML = renderTreeNodes([rootNode]);
+      syncWorkspaceSelection();
+    }
+
+    function syncFileTabsState() {
+      if (!state.openFiles.length) return;
+      const tabs = [...els.fileTabs.querySelectorAll("[data-tab]")];
+      if (tabs.length !== state.openFiles.length) {
+        renderFileTabs();
         return;
       }
-      els.workspaceTree.innerHTML = renderTreeNodes(buildTree(state.workspaceEntries));
-      els.workspaceTree.querySelectorAll("[data-dir]").forEach(element => {
-        element.addEventListener("click", () => {
-          state.expanded[element.dataset.dir] = !(state.expanded[element.dataset.dir] !== false);
-          renderWorkspaceTree();
-        });
+      let needsRerender = false;
+      tabs.forEach((element, index) => {
+        const file = state.openFiles[index];
+        if (!file || element.dataset.tab !== file.path) {
+          needsRerender = true;
+          return;
+        }
+        element.classList.toggle("active", file.path === state.activeFilePath);
+        element.classList.toggle("dirty", !!file.dirty);
+        element.title = file.path;
+        const label = element.querySelector(".file-name");
+        if (label && label.textContent !== file.name) label.textContent = file.name;
       });
-      els.workspaceTree.querySelectorAll("[data-file]").forEach(element => {
-        element.addEventListener("click", () => openFile(element.dataset.file).catch(error => setStatus(error.message)));
-      });
+      if (needsRerender) renderFileTabs();
     }
 
     function renderFileTabs() {
@@ -1730,23 +2392,7 @@
           <button class="ghost file-tab-close" type="button" data-close="${escapeHtml(file.path)}" aria-label="关闭文件">x</button>
         </div>
       `).join("");
-      els.fileTabs.querySelectorAll("[data-tab]").forEach(element => {
-        element.addEventListener("click", () => {
-          state.activeFilePath = element.dataset.tab;
-          ensureExpanded(state.activeFilePath);
-          renderWorkspaceTree();
-          renderFileTabs();
-          renderEditor();
-        });
-      });
-      els.fileTabs.querySelectorAll("[data-close]").forEach(element => {
-        element.addEventListener("click", event => {
-          event.stopPropagation();
-          closeFileTab(element.dataset.close);
-        });
-      });
     }
-
     function fallbackDiff(beforeLines, afterLines) {
       const lines = [];
       let add = 0;
@@ -1839,6 +2485,37 @@
       });
     }
 
+    function getDiffSummary(file) {
+      const cacheKey = `${file.originalRevision}:${file.contentRevision}`;
+      if (file.diffCacheKey === cacheKey && file.diffCache) return file.diffCache;
+      const diff = diffLines(file.originalContent, file.content);
+      const summary = { diff, firstLine: firstChangedLine(diff) };
+      file.diffCacheKey = cacheKey;
+      file.diffCache = summary;
+      return summary;
+    }
+
+    function syncChangeSummarySelection() {
+      els.changeSummaryList.querySelectorAll("[data-change-file]").forEach(element => {
+        element.classList.toggle("active", element.dataset.changeFile === state.activeFilePath);
+      });
+    }
+
+    function scheduleChangeSummaryRender({ immediate = false } = {}) {
+      if (changeSummaryTimer) {
+        window.clearTimeout(changeSummaryTimer);
+        changeSummaryTimer = null;
+      }
+      if (immediate) {
+        renderChangeSummary();
+        return;
+      }
+      changeSummaryTimer = window.setTimeout(() => {
+        changeSummaryTimer = null;
+        renderChangeSummary();
+      }, CHANGE_SUMMARY_DEBOUNCE_MS);
+    }
+
     function renderChangeSummary() {
       const dirtyFiles = dirtyOpenFiles();
       if (!dirtyFiles.length) {
@@ -1849,17 +2526,16 @@
       }
 
       const entries = dirtyFiles.map(file => {
-        const diff = diffLines(file.originalContent, file.content);
-        return { file, diff, firstLine: firstChangedLine(diff) };
+        const summary = getDiffSummary(file);
+        return { file, diff: summary.diff, firstLine: summary.firstLine };
       });
       const totalAdd = entries.reduce((sum, entry) => sum + entry.diff.add, 0);
       const totalDel = entries.reduce((sum, entry) => sum + entry.diff.del, 0);
-      const entryMap = new Map(entries.map(entry => [entry.file.path, entry]));
 
       els.changeSummary.hidden = false;
       els.changeSummaryMeta.textContent = `共 ${entries.length} 个文件，新增 ${totalAdd} 行，删除 ${totalDel} 行`;
       els.changeSummaryList.innerHTML = entries.map(entry => `
-        <button class="change-link ${entry.file.path === state.activeFilePath ? "active" : ""}" type="button" data-change-file="${escapeHtml(entry.file.path)}" title="${escapeHtml(entry.file.path)}">
+        <button class="change-link ${entry.file.path === state.activeFilePath ? "active" : ""}" type="button" data-change-file="${escapeHtml(entry.file.path)}" data-change-line="${entry.firstLine}" title="${escapeHtml(entry.file.path)}">
           <span class="change-link-main">
             <span class="change-link-name">${escapeHtml(entry.file.name)}</span>
             <span class="change-link-path">${escapeHtml(entry.file.path)}</span>
@@ -1870,23 +2546,26 @@
           </span>
         </button>
       `).join("");
-
-      els.changeSummaryList.querySelectorAll("[data-change-file]").forEach(element => {
-        element.addEventListener("click", async () => {
-          const entry = entryMap.get(element.dataset.changeFile);
-          if (!entry) return;
-          try {
-            await openFile(entry.file.path, { quiet: true });
-            focusEditorAtLine(entry.firstLine);
-            setStatus(`已打开 ${entry.file.path}`);
-          } catch (error) {
-            setStatus(error.message || "打开修改文件失败。");
-          }
-        });
-      });
     }
 
-    function renderEditor() {
+    function activateFile(path) {
+      const normalizedPath = normPath(path);
+      const expansionChanged = ensureExpanded(normalizedPath);
+      state.activeFilePath = normalizedPath;
+      if (expansionChanged) renderWorkspaceTree();
+      else syncWorkspaceSelection();
+      syncFileTabsState();
+      syncChangeSummarySelection();
+      renderEditor({ refreshSummary: false });
+    }
+
+    function updateSendButtonState(busy) {
+      sendBtnEl.textContent = busy ? "停止 Stop" : "发送";
+      sendBtnEl.classList.toggle("warn", busy);
+      sendBtnEl.setAttribute("aria-label", busy ? "停止当前流式请求" : "发送消息");
+    }
+
+    function renderEditor({ syncValue = true, refreshSummary = true } = {}) {
       const file = getActiveFile();
       if (!file) {
         els.editorTitle.textContent = "本地代码工作台";
@@ -1894,11 +2573,11 @@
         els.editorStatus.textContent = "尚未打开文件";
         els.editorEmpty.hidden = false;
         els.editorTextarea.hidden = true;
-        els.editorTextarea.value = "";
+        if (syncValue) els.editorTextarea.value = "";
         els.editorTextarea.disabled = true;
         els.reloadFileBtn.disabled = true;
         els.saveFileBtn.disabled = true;
-        renderChangeSummary();
+        if (refreshSummary) scheduleChangeSummaryRender({ immediate: true });
         return;
       }
 
@@ -1906,7 +2585,7 @@
       const modeLabel = state.currentSession?.workspace_root ? "工作区模式" : "问答模式";
       const bits = [`标签 ${tabIndex}/${state.openFiles.length}`];
       if (file.contentHash) bits.push(`校验 ${file.contentHash.slice(0, 12)}`);
-      if (file.truncated) bits.push("文件过大，只读");
+      if (file.truncated) bits.push("文件过大，只读显示");
       else if (!state.currentSession?.settings?.allow_write) bits.push("当前会话未开启写权限");
       else if (file.dirty) bits.push("存在未保存修改");
       else bits.push("已与磁盘同步");
@@ -1917,16 +2596,37 @@
       els.editorStatus.textContent = bits.join(" | ");
       els.editorEmpty.hidden = true;
       els.editorTextarea.hidden = false;
-      if (els.editorTextarea.value !== file.content) els.editorTextarea.value = file.content;
+      if (syncValue && els.editorTextarea.value !== file.content) els.editorTextarea.value = file.content;
       els.editorTextarea.disabled = !canEditActiveFile();
       els.reloadFileBtn.disabled = !!state.streamController;
       els.saveFileBtn.disabled = !canSaveActiveFile();
-      renderChangeSummary();
+      if (refreshSummary) scheduleChangeSummaryRender({ immediate: true });
     }
 
     async function refreshSessions() {
       state.sessions = await fetchJson("/sessions");
       renderSessions();
+    }
+
+    async function updateSessionAttrs(sessionId, payload) {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return null;
+      }
+      const updated = await fetchJson(`/sessions/${sessionId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      });
+      if (state.currentSession?.session_id === sessionId) {
+        state.currentSession = updated;
+        applySessionToControls(state.currentSession);
+        renderMessages(state.currentSession);
+        renderTasks(state.currentSession.tasks);
+        renderTestSummary(state.currentSession.last_test_summary);
+        updateMeta();
+      }
+      await refreshSessions();
+      return updated;
     }
 
     async function loadSession(id) {
@@ -2048,6 +2748,8 @@
       if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
       if (!state.currentSession.workspace_root) {
         state.workspaceEntries = [];
+        state.workspaceTreeModel = null;
+        state.workspaceNodeIndex = new Map();
         renderWorkspaceMeta();
         renderWorkspaceTree();
         return;
@@ -2057,26 +2759,25 @@
       for (const entry of state.workspaceEntries) {
         if (entry.is_dir && normPath(entry.path).split("/").length <= 1) state.expanded[entry.path] = true;
       }
+      state.workspaceTreeModel = null;
+      state.workspaceNodeIndex = new Map();
       if (state.activeFilePath) ensureExpanded(state.activeFilePath);
       renderWorkspaceMeta(payload.note || "");
       renderWorkspaceTree();
-      if (!silent) setStatus("已刷新文件树。");
+      if (!silent) setStatus("文件树已刷新。");
     }
 
     async function openFile(path, { forceReload = false, skipPersist = false, quiet = false } = {}) {
       const normalizedPath = normPath(path);
       const existing = getOpenFile(normalizedPath);
       if (existing && !forceReload) {
-        state.activeFilePath = existing.path;
-        ensureExpanded(existing.path);
-        renderWorkspaceTree();
-        renderFileTabs();
-        renderEditor();
+        activateFile(existing.path);
         return;
       }
       if (existing?.dirty && forceReload && !window.confirm(`重新加载 ${existing.path} 会覆盖未保存修改。是否继续？`)) return;
       if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
       const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file?path=${encodeURIComponent(normalizedPath)}`);
+      const revision = nextFileRevision();
       upsertOpenFile({
         path: payload.path,
         name: baseName(payload.path),
@@ -2084,11 +2785,15 @@
         originalContent: payload.content,
         contentHash: payload.content_sha256,
         dirty: false,
-        truncated: !!payload.truncated
+        truncated: !!payload.truncated,
+        originalRevision: revision,
+        contentRevision: revision,
+        diffCacheKey: "",
+        diffCache: null
       });
       renderWorkspaceTree();
       renderFileTabs();
-      renderEditor();
+      renderEditor({ refreshSummary: true });
       if (!quiet) {
         setStatus(payload.truncated ? `已打开 ${payload.path}，但文件过大，当前只读。` : `已打开 ${payload.path}`);
       }
@@ -2131,16 +2836,21 @@
           expected_content_hash: file.contentHash || undefined
         })
       });
+      const revision = nextFileRevision();
       upsertOpenFile({
         ...file,
         content: file.content,
         originalContent: file.content,
         contentHash: payload.content_sha256,
         dirty: false,
-        truncated: false
+        truncated: false,
+        originalRevision: revision,
+        contentRevision: revision,
+        diffCacheKey: "",
+        diffCache: null
       });
-      renderFileTabs();
-      renderEditor();
+      syncFileTabsState();
+      renderEditor({ refreshSummary: true });
       await refreshWorkspaceTree({ skipPersist: true, silent: true });
       setStatus(`已保存 ${payload.path}`);
     }
@@ -2150,9 +2860,12 @@
       if (file?.dirty && !window.confirm(`关闭 ${file.path} 会丢失未保存修改。是否继续？`)) return;
       state.openFiles = state.openFiles.filter(item => item.path !== path);
       if (state.activeFilePath === path) state.activeFilePath = state.openFiles[0]?.path || "";
+      const expansionChanged = state.activeFilePath ? ensureExpanded(state.activeFilePath) : false;
       renderFileTabs();
-      renderEditor();
-      renderWorkspaceTree();
+      if (expansionChanged) renderWorkspaceTree();
+      else syncWorkspaceSelection();
+      syncChangeSummarySelection();
+      renderEditor({ refreshSummary: true });
     }
 
     function appendPendingAssistant() {
@@ -2168,6 +2881,15 @@
       state.pendingAssistantText = "";
       if (state.pendingAssistantEl) state.pendingAssistantEl.remove();
       state.pendingAssistantEl = null;
+    }
+
+    function requestStopStream() {
+      if (!state.streamController) return;
+      state.streamStopRequested = true;
+      clearPendingAssistant();
+      if (state.currentSession) renderMessages(state.currentSession);
+      setStreamTerminalStatus("已取消");
+      state.streamController.abort();
     }
 
     function parseSseEventBlock(block) {
@@ -2227,7 +2949,7 @@
       state.streamStopRequested = false;
       state.streamTerminalStatus = "";
       setStreamingControls(false);
-      renderEditor();
+      renderEditor({ refreshSummary: false });
       if (terminal) setStatus(terminal);
     }
 
@@ -2305,7 +3027,7 @@
         setStatus(error.message || "设置保存失败。");
         return;
       }
-      setStatus("进行中...");
+      setStatus("执行中...");
       state.currentSession.messages = [...(state.currentSession.messages || []), { role: "user", content }];
       renderMessages(state.currentSession);
       appendPendingAssistant();
@@ -2371,6 +3093,24 @@
       }
     }
 
+    async function deleteSessionById(sessionId) {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      if (!sessionId) return;
+      if (state.currentSession?.session_id === sessionId) {
+        await deleteCurrentSession();
+        return;
+      }
+      const target = state.sessions.find(session => session.session_id === sessionId);
+      const title = target?.title || "该会话";
+      if (!window.confirm(`确认永久删除会话“${title}”？此操作无法恢复。`)) return;
+      await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
+      await refreshSessions();
+      setStatus("会话已删除。");
+    }
+
     async function deleteCurrentSession() {
       if (state.streamController) {
         setStatus("请先等待当前流式运行结束。");
@@ -2380,11 +3120,11 @@
         setStatus("请先选择会话。");
         return;
       }
-      if (hasDirtyOpenFiles() && !window.confirm("你有未保存的文件修改。删除会话后，这些改动不会被恢复。是否继续进入删除确认？")) return;
+      if (hasDirtyOpenFiles() && !window.confirm("你有未保存的文件修改。删除会话后，这些改动不会被恢复。是否继续删除当前会话？")) return;
       const sessionId = state.currentSession.session_id;
       const title = state.currentSession.title || "当前会话";
       const nextFilter = normPath(state.currentSession.workspace_root);
-      if (!window.confirm(`确认永久删除会话「${title}」？这会移除消息、任务、最近测试记录和当前会话设置，且无法恢复。`)) return;
+      if (!window.confirm(`确认永久删除会话“${title}”？这会移除消息、任务、最近测试记录和当前会话设置，且无法恢复。`)) return;
       try {
         await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
         state.currentSession = null;
@@ -2408,15 +3148,27 @@
     els.editorTextarea.addEventListener("input", () => {
       const file = getActiveFile();
       if (!file) return;
-      file.content = els.editorTextarea.value;
+      const nextContent = els.editorTextarea.value;
+      if (file.content === nextContent) return;
+      file.content = nextContent;
       file.dirty = file.content !== file.originalContent;
-      renderFileTabs();
-      renderEditor();
+      file.contentRevision = nextFileRevision();
+      syncFileTabsState();
+      renderEditor({ syncValue: false, refreshSummary: false });
+      scheduleChangeSummaryRender();
     });
     els.maxTurnsInput.addEventListener("change", () => {
       els.maxTurnsInput.value = normalizeMaxTurns(els.maxTurnsInput.value);
     });
     els.workspaceInput.addEventListener("input", () => renderSessions());
+    els.sessionSearchInput.addEventListener("input", () => {
+      state.sessionSearchQuery = els.sessionSearchInput.value || "";
+      renderSessions();
+    });
+    els.toggleArchivedBtn.addEventListener("click", () => {
+      state.archivedExpanded = !state.archivedExpanded;
+      renderSessions();
+    });
     els.messageInput.addEventListener("keydown", event => {
       if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
       event.preventDefault();
@@ -2434,28 +3186,72 @@
       state.drawerOpen = false;
       renderContextDrawer();
     });
-    els.sendBtn.addEventListener("click", () => sendMessage());
+    els.workspaceTree.addEventListener("click", event => {
+      const toggle = event.target.closest("[data-tree-toggle]");
+      if (toggle) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleTreeNode(toggle.dataset.treeToggle);
+        return;
+      }
+      const dirTarget = event.target.closest("[data-tree-dir]");
+      if (dirTarget) {
+        toggleTreeNode(dirTarget.dataset.treeDir);
+        return;
+      }
+      const fileTarget = event.target.closest("[data-tree-file]");
+      if (fileTarget) openFile(fileTarget.dataset.treeFile).catch(error => setStatus(error.message));
+    });
+    els.fileTabs.addEventListener("click", event => {
+      const closeTarget = event.target.closest("[data-close]");
+      if (closeTarget) {
+        event.stopPropagation();
+        closeFileTab(closeTarget.dataset.close);
+        return;
+      }
+      const tabTarget = event.target.closest("[data-tab]");
+      if (tabTarget) activateFile(tabTarget.dataset.tab);
+    });
+    els.changeSummaryList.addEventListener("click", event => {
+      const target = event.target.closest("[data-change-file]");
+      if (!target) return;
+      openFile(target.dataset.changeFile, { quiet: true })
+        .then(() => {
+          focusEditorAtLine(Number(target.dataset.changeLine || 1));
+          setStatus(`已打开 ${target.dataset.changeFile}`);
+        })
+        .catch(error => setStatus(error.message || "打开修改文件失败。"));
+    });
+    els.sendBtn.addEventListener("click", () => {
+      if (state.streamController) {
+        requestStopStream();
+        return;
+      }
+      sendMessage();
+    });
     els.runTestsBtn.addEventListener("click", () => runTests());
     els.refreshTreeBtn.addEventListener("click", () => refreshWorkspaceTree().catch(error => setStatus(error.message)));
     els.reloadFileBtn.addEventListener("click", () => reloadActiveFile().catch(error => setStatus(error.message)));
     els.saveFileBtn.addEventListener("click", () => saveActiveFile().catch(error => setStatus(error.message)));
-    els.stopBtn.addEventListener("click", () => {
-      if (!state.streamController) return;
-      state.streamStopRequested = true;
-      clearPendingAssistant();
-      if (state.currentSession) renderMessages(state.currentSession);
-      setStreamTerminalStatus("已取消");
-      state.streamController.abort();
-    });
+    els.stopBtn.addEventListener("click", requestStopStream);
     els.toggleLeftSidebarBtn.addEventListener("click", toggleLeftSidebar);
     els.toggleRightSidebarBtn.addEventListener("click", toggleRightSidebar);
+    els.assistantResizeHandle.addEventListener("pointerdown", startAssistantResize);
 
     document.addEventListener("click", event => {
       if (!els.toolbarMoreMenu) return;
       if (!els.toolbarMoreMenu.contains(event.target)) els.toolbarMoreMenu.open = false;
+      document.querySelectorAll("[data-session-menu][open]").forEach(menu => {
+        if (!menu.contains(event.target)) menu.open = false;
+      });
     });
     document.addEventListener("keydown", event => {
       if (event.key === "Escape" && els.toolbarMoreMenu) els.toolbarMoreMenu.open = false;
+      if (event.key === "Escape") {
+        document.querySelectorAll("[data-session-menu][open]").forEach(menu => {
+          menu.open = false;
+        });
+      }
     });
 
     readLayoutState();
