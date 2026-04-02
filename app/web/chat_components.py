@@ -443,6 +443,84 @@ class AssistantResponseRenderer:
         return [body[index : index + chunk_size] for index in range(0, len(body), chunk_size)]
 
 
+    def summarize_task_result(self, turn: AgenticTurnResult) -> str:
+        answer = turn.answer.strip()
+        if answer:
+            return answer[:240]
+        if turn.tool_trace:
+            ok_count = sum(1 for item in turn.tool_trace if item.get("status") == "ok")
+            return f"完成了 {len(turn.tool_trace)} 次工具调用，其中 {ok_count} 次成功。"
+        return "本步骤没有拿到有效结果。"
+
+    def compose_step_plan(self, board: TaskBoard) -> str:
+        tasks = board.ordered_tasks()
+        if not tasks:
+            return "我会先整理步骤，再继续处理。"
+        lines = ["我会按下面这些步骤推进："]
+        for index, task in enumerate(tasks, start=1):
+            detail = self._clean_sentence(task.description or task.acceptance or task.title)
+            lines.append(f"{index}. {task.title}：{detail}")
+        return "\n".join(lines)
+
+    def compose_step_update(self, task: TaskItem, *, step_index: int) -> str:
+        detail = self._clean_sentence(task.summary or task.acceptance or task.description or task.title)
+        if task.status == "done":
+            return f"步骤 {step_index} 已完成：{task.title}。{detail}"
+        if task.status == "failed":
+            return f"步骤 {step_index} 未完成：{task.title}。{detail}"
+        return f"步骤 {step_index} 正在处理：{task.title}。"
+
+    def compose_final_answer(
+        self,
+        board: TaskBoard,
+        last_answer: str,
+        last_test_summary: dict[str, Any] | None,
+    ) -> str:
+        tasks = board.ordered_tasks()
+        finished = [task for task in tasks if task.status == "done"]
+        failed = [task for task in tasks if task.status == "failed"]
+        parts: list[str] = []
+
+        if tasks:
+            if failed:
+                done_text = "、".join(task.title for task in finished) if finished else "前置步骤"
+                failed_text = "；".join(
+                    f"{task.title}：{self._clean_sentence(task.summary or task.acceptance or task.description or task.title)}"
+                    for task in failed
+                )
+                parts.append(f"这次任务已经按步骤推进。已完成的部分包括 {done_text}；仍需继续处理的是 {failed_text}。")
+            else:
+                step_titles = "、".join(task.title for task in tasks)
+                parts.append(f"这次任务已经按“{step_titles}”这些步骤处理完成。")
+
+        answer = str(last_answer or "").strip()
+        if answer:
+            parts.append(answer)
+        elif tasks:
+            summaries = [
+                self._clean_sentence(task.summary or task.acceptance or task.description or task.title)
+                for task in tasks
+            ]
+            parts.append(f"关键结果是：{'；'.join(summaries)}。")
+
+        if last_test_summary:
+            status_text = "通过" if last_test_summary.get("passed") else "失败"
+            command = str(last_test_summary.get("command") or "").strip()
+            duration_ms = int(last_test_summary.get("duration_ms") or 0)
+            if command:
+                parts.append(f"最后一次测试{status_text}，耗时 {duration_ms} ms，命令是 {command}。")
+            else:
+                parts.append(f"最后一次测试{status_text}，耗时 {duration_ms} ms。")
+
+        return "\n\n".join(part for part in parts if part).strip()
+
+    def chunk_text(self, text: str, *, chunk_size: int = 160) -> list[str]:
+        return [str(text or "")]
+
+    def _clean_sentence(self, text: str) -> str:
+        return str(text or "").strip().rstrip("。；;")
+
+
 @dataclass
 class AgenticExecutionResult:
     snapshot: dict[str, Any]
@@ -540,12 +618,15 @@ class AgenticTaskCoordinator:
         snapshot["tasks"] = board.to_dicts()
         snapshot = self.session_store.save_session(snapshot)
         emit({"event": "task_board", "data": snapshot["tasks"]})
+        emit({"event": "assistant_delta", "data": {"content": f"{self.renderer.compose_step_plan(board)}\n\n"}})
 
         combined_tool_trace: list[dict[str, Any]] = []
         task_results: list[dict[str, Any]] = []
         last_nonempty_answer = ""
 
-        for task in board.ordered_tasks():
+        ordered_tasks = board.ordered_tasks()
+
+        for step_index, task in enumerate(ordered_tasks, start=1):
             self._ensure_not_cancelled(cancel_event)
             if self._dependency_failed(task, board):
                 failed_task = board.mark_failed(task.id, summary="依赖任务失败，当前任务未执行。")
@@ -564,6 +645,12 @@ class AgenticTaskCoordinator:
                 )[0]
                 task_results.append(task_result)
                 emit({"event": "task_update", "data": task_result})
+                emit(
+                    {
+                        "event": "assistant_delta",
+                        "data": {"content": f"{self.renderer.compose_step_update(failed_task, step_index=step_index)}\n\n"},
+                    }
+                )
                 continue
 
             running_task = board.mark_in_progress(task.id)
@@ -589,7 +676,9 @@ class AgenticTaskCoordinator:
             tool_trace = normalize_tool_trace(turn.tool_trace)
             combined_tool_trace.extend(tool_trace)
             if turn.answer.strip():
-                last_nonempty_answer = turn.answer.strip()
+                candidate_answer = turn.answer.strip()
+                if self._prefer_as_final_answer(candidate_answer, last_nonempty_answer):
+                    last_nonempty_answer = candidate_answer
 
             summary = self.renderer.summarize_task_result(turn)
             if self.renderer.task_succeeded(turn):
@@ -615,7 +704,7 @@ class AgenticTaskCoordinator:
             emit(
                 {
                     "event": "assistant_delta",
-                    "data": {"content": f"[{final_task.title}] {final_task.status}: {final_task.summary}\n"},
+                    "data": {"content": f"{self.renderer.compose_step_update(final_task, step_index=step_index)}\n\n"},
                 }
             )
 
@@ -727,6 +816,19 @@ class AgenticTaskCoordinator:
             f"命令执行权限：{'开启' if settings.get('allow_shell') else '关闭'}\n\n"
             "请围绕当前任务行动；若权限不足，输出结构化补丁建议或手动编辑步骤。"
         )
+
+    def _prefer_as_final_answer(self, candidate: str, current: str) -> bool:
+        if not current:
+            return True
+        candidate_has_patch = self._contains_patch(candidate)
+        current_has_patch = self._contains_patch(current)
+        if candidate_has_patch != current_has_patch:
+            return candidate_has_patch
+        return len(candidate) >= len(current)
+
+    def _contains_patch(self, text: str) -> bool:
+        body = str(text or "")
+        return "--- " in body or "@@" in body or "diff" in body.lower()
 
     def _ensure_not_cancelled(self, cancel_event: Any | None) -> None:
         if cancel_event is not None and cancel_event.is_set():

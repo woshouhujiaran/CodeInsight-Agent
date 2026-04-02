@@ -20,6 +20,9 @@ class SessionCreateModel(BaseModel):
 class SessionUpdateModel(BaseModel):
     workspace_root: str | None = None
     settings: SessionSettingsModel | None = None
+    title: str | None = None
+    pinned: bool | None = None
+    archived: bool | None = None
 
 
 class MessageCreateModel(BaseModel):
@@ -75,6 +78,8 @@ class SessionSummaryModel(BaseModel):
     created_at: str
     updated_at: str
     workspace_root: str
+    pinned: bool = False
+    archived: bool = False
 
 
 class SessionSnapshotModel(BaseModel):
@@ -84,6 +89,8 @@ class SessionSnapshotModel(BaseModel):
     created_at: str
     updated_at: str
     workspace_root: str
+    pinned: bool = False
+    archived: bool = False
     messages: list[MessageModel]
     turn_metadata: list[TurnMetadataModel]
     tasks: list[dict[str, Any]]

@@ -92,6 +92,9 @@ def test_web_api_session_crud(tmp_path: Path) -> None:
         f"/sessions/{session_id}",
         json={
             "workspace_root": str(workspace),
+            "title": "自定义会话",
+            "pinned": True,
+            "archived": True,
             "settings": {
                 "allow_write": False,
                 "allow_shell": True,
@@ -102,8 +105,16 @@ def test_web_api_session_crud(tmp_path: Path) -> None:
         },
     )
     assert updated.status_code == 200
+    assert updated.json()["title"] == "自定义会话"
+    assert updated.json()["pinned"] is True
+    assert updated.json()["archived"] is True
     assert updated.json()["settings"]["allow_shell"] is True
     assert updated.json()["settings"]["max_turns"] == 9
+
+    listed_after_update = client.get("/sessions")
+    assert listed_after_update.status_code == 200
+    assert listed_after_update.json()[0]["pinned"] is True
+    assert listed_after_update.json()[0]["archived"] is True
 
     deleted = client.delete(f"/sessions/{session_id}")
     assert deleted.status_code == 200
@@ -183,7 +194,7 @@ def test_web_api_post_message_non_stream(tmp_path: Path) -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert "任务执行结果" in body["assistant"]
+    assert "这次任务已经按" in body["assistant"]
     assert body["session"]["messages"][-2]["content"] == "请给项目新增健康检查"
     assert len(body["session"]["tasks"]) == 3
 

@@ -36,7 +36,7 @@ def test_web_service_restores_memory_snapshot(tmp_path: Path) -> None:
 
     assert factory.memories[0]["messages"][0]["content"] == "旧问题"
     assert result["session"]["messages"][-2]["content"] == "新增一个接口"
-    assert "任务执行结果" in result["session"]["messages"][-1]["content"]
+    assert "这次任务已经按" in result["session"]["messages"][-1]["content"]
     assert len(result["task_results"]) == 3
 
 
@@ -147,6 +147,23 @@ def test_web_service_qa_mode_allows_empty_workspace_and_skips_agent_factory(tmp_
     assert factory.created_agents == []
     assert fake_llm.calls
     assert "不会自动写入任何本地文件" in fake_llm.calls[0]["prompt"]
+
+
+def test_web_service_qa_emits_single_full_delta(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root="")
+    fake_llm = FakeLLM(answer="这是一次完整的 QA 回答。")
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=FakeAgentFactory(turns=[build_turn("不应被调用")]),
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(session["session_id"], "解释一下二分查找")
+
+    deltas = [event for event in result["events"] if event["event"] == "assistant_delta"]
+    assert deltas == [{"event": "assistant_delta", "data": {"content": fake_llm.answer}}]
 
 
 def test_turn_mode_decider_prefers_qa_for_general_questions_and_clarifications() -> None:
@@ -397,6 +414,7 @@ def test_web_service_stream_close_cancels_background_turn(tmp_path: Path) -> Non
     assert next(events)["event"] == "mode"
     assert next(events)["event"] == "session"
     assert next(events)["event"] == "task_board"
+    assert next(events)["event"] == "assistant_delta"
     assert next(events)["event"] == "task_update"
     assert factory.agent.started.wait(timeout=1.0) is True
 

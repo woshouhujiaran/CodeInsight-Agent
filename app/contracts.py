@@ -104,9 +104,12 @@ class SessionSnapshotModel(_ExtraAllowModel):
     schema_version: int
     session_id: str
     title: str
+    title_overridden: bool = False
     created_at: str
     updated_at: str
     workspace_root: str = ""
+    pinned: bool = False
+    archived: bool = False
     messages: list[MessageModel] = Field(default_factory=list)
     turn_metadata: list[TurnMetadataModel] = Field(default_factory=list)
     tasks: list[dict[str, Any]] = Field(default_factory=list)

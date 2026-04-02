@@ -12,13 +12,14 @@ from app.contracts import (
     SessionSettingsModel,
     SessionSnapshotModel as SessionSnapshotRecord,
     dump_model,
-    normalize_messages,
     normalize_max_turns,
+    normalize_messages,
     normalize_test_summary,
     normalize_turn_metadata,
 )
 
 SESSION_SCHEMA_VERSION = 1
+DEFAULT_SESSION_TITLE = "新会话"
 
 
 def utc_now_iso() -> str:
@@ -33,7 +34,7 @@ def derive_session_title(messages: list[dict[str, Any]]) -> str:
         if not content:
             continue
         return content[:40]
-    return "新会话"
+    return DEFAULT_SESSION_TITLE
 
 
 def default_session_settings() -> dict[str, Any]:
@@ -69,9 +70,12 @@ def coerce_session_snapshot(snapshot: dict[str, Any]) -> dict[str, Any]:
             schema_version=int(snapshot.get("schema_version") or SESSION_SCHEMA_VERSION),
             session_id=str(snapshot.get("session_id") or uuid4().hex),
             title=str(snapshot.get("title") or derive_session_title(messages)),
+            title_overridden=bool(snapshot.get("title_overridden")),
             created_at=created_at,
             updated_at=updated_at,
             workspace_root=str(snapshot.get("workspace_root") or ""),
+            pinned=bool(snapshot.get("pinned")),
+            archived=bool(snapshot.get("archived")),
             messages=messages,
             turn_metadata=turn_metadata,
             tasks=tasks if isinstance(tasks, list) else [],
@@ -103,10 +107,13 @@ class SessionStore:
             {
                 "schema_version": SESSION_SCHEMA_VERSION,
                 "session_id": uuid4().hex,
-                "title": "新会话",
+                "title": DEFAULT_SESSION_TITLE,
+                "title_overridden": False,
                 "created_at": now,
                 "updated_at": now,
                 "workspace_root": workspace_root,
+                "pinned": False,
+                "archived": False,
                 "messages": [],
                 "turn_metadata": [],
                 "tasks": [],
@@ -120,7 +127,9 @@ class SessionStore:
     def save_session(self, snapshot: dict[str, Any]) -> dict[str, Any]:
         normalized = coerce_session_snapshot(snapshot)
         normalized["updated_at"] = utc_now_iso()
-        if not normalized["title"] or normalized["title"] == "新会话":
+        if not normalized["title"] or (
+            not normalized["title_overridden"] and normalized["title"] == DEFAULT_SESSION_TITLE
+        ):
             normalized["title"] = derive_session_title(normalized["messages"])
         path = self.session_path(normalized["session_id"])
         self._atomic_write_json(path, normalized)
@@ -152,6 +161,9 @@ class SessionStore:
         *,
         workspace_root: str | None = None,
         settings: dict[str, Any] | None = None,
+        title: str | None = None,
+        pinned: bool | None = None,
+        archived: bool | None = None,
     ) -> dict[str, Any]:
         snapshot = self.get_session(session_id)
         if workspace_root is not None:
@@ -160,6 +172,14 @@ class SessionStore:
             merged = dict(snapshot.get("settings") or {})
             merged.update(settings)
             snapshot["settings"] = normalize_session_settings(merged)
+        if title is not None:
+            text = str(title).strip()
+            snapshot["title"] = text or derive_session_title(snapshot.get("messages") or [])
+            snapshot["title_overridden"] = bool(text)
+        if pinned is not None:
+            snapshot["pinned"] = bool(pinned)
+        if archived is not None:
+            snapshot["archived"] = bool(archived)
         return self.save_session(snapshot)
 
     def delete_session(self, session_id: str) -> None:
