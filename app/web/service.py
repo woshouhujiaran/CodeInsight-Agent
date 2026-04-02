@@ -89,6 +89,8 @@ class WebAgentService:
                 "created_at": row["created_at"],
                 "updated_at": row["updated_at"],
                 "workspace_root": row["workspace_root"],
+                "pinned": bool(row.get("pinned")),
+                "archived": bool(row.get("archived")),
             }
             for row in rows
         ]
@@ -102,6 +104,9 @@ class WebAgentService:
         *,
         workspace_root: str | None = None,
         settings: dict[str, Any] | None = None,
+        title: str | None = None,
+        pinned: bool | None = None,
+        archived: bool | None = None,
     ) -> dict[str, Any]:
         resolved_root = self.resolve_workspace_root(workspace_root, required=False) if workspace_root is not None else None
         normalized_settings = normalize_session_settings(settings) if settings is not None else None
@@ -109,6 +114,9 @@ class WebAgentService:
             session_id,
             workspace_root=resolved_root,
             settings=normalized_settings,
+            title=title,
+            pinned=pinned,
+            archived=archived,
         )
 
     def delete_session(self, session_id: str) -> dict[str, Any]:
@@ -121,8 +129,8 @@ class WebAgentService:
         result["events"] = events
         return result
 
-    def stream_chat(self, session_id: str, content: str) -> Iterator[ServiceEvent]:
-        worker = StreamWorker(
+    def create_stream_chat_worker(self, session_id: str, content: str) -> StreamWorker:
+        return StreamWorker(
             lambda cancel_event, emit: self._process_chat_turn(
                 session_id,
                 content,
@@ -130,7 +138,9 @@ class WebAgentService:
                 cancel_event=cancel_event,
             )
         )
-        return worker.iter_events()
+
+    def stream_chat(self, session_id: str, content: str) -> Iterator[ServiceEvent]:
+        return self.create_stream_chat_worker(session_id, content).iter_events()
 
     def run_session_tests(self, session_id: str, *, emit: EventCallback | None = None) -> dict[str, Any]:
         snapshot = self.session_store.get_session(session_id)
@@ -308,7 +318,7 @@ class WebAgentService:
         snapshot["messages"] = memory.get_messages()
         if mode == "qa":
             snapshot["tasks"] = []
-        snapshot["title"] = derive_session_title(snapshot["messages"])
+        self._sync_session_title(snapshot)
         snapshot = self.session_store.save_session(snapshot)
 
         emit({"event": "mode", "data": {"mode": mode, "agentic": mode == "agentic"}})
@@ -380,8 +390,7 @@ class WebAgentService:
             execution.last_nonempty_answer,
             last_test_summary,
         )
-        for chunk in self.renderer.chunk_text(final_answer):
-            emit({"event": "assistant_delta", "data": {"content": chunk}})
+        self._emit_assistant_text(emit, final_answer)
         self._ensure_not_cancelled(cancel_event)
 
         memory.add_assistant_message(final_answer)
@@ -402,7 +411,7 @@ class WebAgentService:
         snapshot["turn_metadata"] = memory.get_turn_metadata()
         snapshot["tasks"] = execution.board.to_dicts()
         snapshot["last_test_summary"] = last_test_summary
-        snapshot["title"] = derive_session_title(snapshot["messages"])
+        self._sync_session_title(snapshot)
         snapshot = self.session_store.save_session(snapshot)
 
         emit({"event": "assistant_final", "data": {"content": final_answer}})
@@ -448,8 +457,7 @@ class WebAgentService:
     ) -> dict[str, Any]:
         self._ensure_not_cancelled(cancel_event)
 
-        for chunk in self.renderer.chunk_text(answer):
-            emit({"event": "assistant_delta", "data": {"content": chunk}})
+        self._emit_assistant_text(emit, answer)
 
         memory.add_assistant_message(answer)
         memory.add_turn_metadata(
@@ -462,7 +470,7 @@ class WebAgentService:
         snapshot["messages"] = memory.get_messages()
         snapshot["turn_metadata"] = memory.get_turn_metadata()
         snapshot["tasks"] = []
-        snapshot["title"] = derive_session_title(snapshot["messages"])
+        self._sync_session_title(snapshot)
         snapshot = self.session_store.save_session(snapshot)
 
         emit({"event": "assistant_final", "data": {"content": answer}})
@@ -502,6 +510,14 @@ class WebAgentService:
         if workspace_root:
             return workspace_root
         raise ValueError("当前会话未设置 workspace_root。QA 模式可以留空；任务模式请先配置真实工作区。")
+
+    def _sync_session_title(self, snapshot: dict[str, Any]) -> None:
+        if snapshot.get("title_overridden"):
+            return
+        snapshot["title"] = derive_session_title(snapshot.get("messages") or [])
+
+    def _emit_assistant_text(self, emit: EventCallback, text: str) -> None:
+        emit({"event": "assistant_delta", "data": {"content": str(text or "")}})
 
     def _run_workspace_tool(self, tool: Any, args: dict[str, Any]) -> dict[str, Any]:
         result = ensure_tool_result(tool.run(args))

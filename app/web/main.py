@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+from contextlib import suppress
 from contextlib import asynccontextmanager
 from pathlib import Path
 import json
@@ -7,8 +9,9 @@ import os
 from typing import Any
 
 from app.utils.env_loader import load_env_file
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
+from starlette.concurrency import iterate_in_threadpool
 import uvicorn
 
 from app.web.schemas import (
@@ -91,6 +94,9 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
                 session_id,
                 workspace_root=payload.workspace_root,
                 settings=settings,
+                title=payload.title,
+                pinned=payload.pinned,
+                archived=payload.archived,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="会话不存在。") from exc
@@ -108,13 +114,37 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
     def post_message(
         session_id: str,
         payload: MessageCreateModel,
+        request: Request,
         stream: bool = Query(default=False),
     ) -> Any:
         try:
             if stream:
-                def event_stream() -> Any:
-                    for item in app.state.service.stream_chat(session_id, payload.content):
-                        yield _sse_message(item["event"], item["data"])
+                worker = app.state.service.create_stream_chat_worker(session_id, payload.content)
+                disconnect_flag = {"requested": False}
+
+                async def watch_disconnect() -> None:
+                    while not disconnect_flag["requested"]:
+                        if await request.is_disconnected():
+                            disconnect_flag["requested"] = True
+                            worker.cancel()
+                            break
+                        await asyncio.sleep(0.1)
+
+                async def event_stream() -> Any:
+                    disconnect_task = asyncio.create_task(watch_disconnect())
+                    try:
+                        async for item in iterate_in_threadpool(
+                            worker.iter_events(should_stop=lambda: disconnect_flag["requested"])
+                        ):
+                            if disconnect_flag["requested"]:
+                                break
+                            yield _sse_message(item["event"], item["data"])
+                    finally:
+                        disconnect_flag["requested"] = True
+                        worker.cancel()
+                        disconnect_task.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await disconnect_task
 
                 return StreamingResponse(event_stream(), media_type="text/event-stream")
             return app.state.service.chat(session_id, payload.content)

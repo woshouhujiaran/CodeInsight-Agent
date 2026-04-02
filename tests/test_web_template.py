@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from pathlib import Path
 
@@ -8,10 +8,11 @@ def test_index_template_includes_stream_cancel_and_multiline_sse_guards() -> Non
 
     assert 'dataLines.join("\\n")' in html
     assert 'setStreamTerminalStatus("已取消")' in html
-    assert 'sendBtnEl.disabled = busy;' in html
+    assert 'sendBtnEl.textContent = busy ? "停止 Stop" : "发送";' in html
     assert 'runTestsBtnEl.disabled = busy;' in html
     assert 'saveSettingsBtnEl.disabled = busy;' in html
     assert 'if (eventName === "error")' in html
+    assert 'scheduleChangeSummaryRender();' in html
 
 
 def test_index_template_includes_workspace_editor_shell() -> None:
@@ -24,3 +25,4 @@ def test_index_template_includes_workspace_editor_shell() -> None:
     assert 'id="fileTabs"' in html
     assert 'id="editorTextarea"' in html
     assert 'id="saveFileBtn"' in html
+    assert 'tree-file-marker' in html
