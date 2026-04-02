@@ -25,8 +25,9 @@
       --control-radius:10px;
       --shadow:0 18px 48px rgba(2,6,23,.32);
       --layout-gap:10px;
-      --sidebar-width:clamp(220px,16vw,280px);
-      --assistant-width:clamp(300px,20vw,380px);
+      --sidebar-width:clamp(220px,15vw,270px);
+      --assistant-width:clamp(340px,24vw,430px);
+      --session-rail-width:52px;
     }
 
     *{box-sizing:border-box}
@@ -56,6 +57,7 @@
     .layout{
       display:grid;
       grid-template-columns:var(--sidebar-width) minmax(0,1fr) var(--assistant-width);
+      grid-template-areas:"sidebar editor assistant";
       align-items:stretch;
       gap:var(--layout-gap);
       width:100%;
@@ -63,9 +65,18 @@
       min-height:100vh;
       padding:var(--layout-gap);
     }
-    .layout.left-collapsed{grid-template-columns:0 minmax(0,1fr) var(--assistant-width)}
-    .layout.right-collapsed{grid-template-columns:var(--sidebar-width) minmax(0,1fr) 0}
-    .layout.both-collapsed{grid-template-columns:0 minmax(0,1fr) 0}
+    .layout.left-collapsed{
+      grid-template-columns:0 minmax(0,1fr) var(--assistant-width);
+      grid-template-areas:"editor editor assistant";
+    }
+    .layout.right-collapsed{
+      grid-template-columns:var(--sidebar-width) minmax(0,1fr) 0;
+      grid-template-areas:"sidebar editor editor";
+    }
+    .layout.both-collapsed{
+      grid-template-columns:0 minmax(0,1fr) 0;
+      grid-template-areas:"editor editor editor";
+    }
     .layout.left-collapsed .sidebar,
     .layout.right-collapsed .assistant,
     .layout.both-collapsed .sidebar,
@@ -109,24 +120,35 @@
     .panel-actions{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
     .panel-actions button{flex:0 0 auto}
 
-    .sidebar{display:grid;grid-template-rows:auto minmax(0,1fr)}
-    .sidebar-body{
+    .sidebar{
+      grid-area:sidebar;
       display:grid;
-      grid-template-rows:minmax(200px,.72fr) minmax(0,1fr);
-      gap:10px;
+      grid-template-rows:auto minmax(0,1fr);
+    }
+    .sidebar-body{
+      display:flex;
+      flex-direction:column;
       padding:10px;
       min-height:0;
     }
     .sidebar-card{display:flex;flex-direction:column;gap:10px;padding:10px 12px;min-height:0;overflow:hidden}
-    .sidebar-tree-card{min-height:0}
+    .sidebar-tree-card{min-height:0;flex:1}
 
     .editor{
+      grid-area:editor;
       display:grid;
       grid-template-rows:auto auto auto auto minmax(0,1fr);
       min-width:0;
       min-height:0;
+      border-color:rgba(110,168,254,.26);
+      background:
+        radial-gradient(circle at top center,rgba(59,130,246,.1),transparent 34%),
+        linear-gradient(180deg,rgba(255,255,255,.04),transparent 18%),
+        rgba(8,12,24,.94);
+      box-shadow:0 24px 64px rgba(2,6,23,.42),0 0 0 1px rgba(110,168,254,.08);
     }
     .assistant{
+      grid-area:assistant;
       display:grid;
       grid-template-rows:auto minmax(0,1fr);
       min-width:0;
@@ -610,8 +632,67 @@
     .assistant-chat-shell{
       padding:10px;
       min-height:0;
-      display:flex;
+      display:grid;
+      grid-template-columns:var(--session-rail-width) minmax(0,1fr);
+      gap:10px;
+      align-items:stretch;
     }
+    .session-rail{
+      display:flex;
+      flex-direction:column;
+      align-items:stretch;
+      gap:10px;
+      min-height:0;
+    }
+    .session-rail-btn{
+      width:100%;
+      min-width:0;
+      padding:8px 0;
+      box-shadow:none;
+    }
+    .session-rail-current{
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      width:100%;
+      min-height:96px;
+      padding:10px 6px;
+      border-radius:16px;
+      border:1px dashed rgba(148,163,184,.22);
+      background:rgba(148,163,184,.04);
+      color:var(--subtle);
+      font-size:10px;
+      font-weight:700;
+      letter-spacing:.18em;
+      text-transform:uppercase;
+      writing-mode:vertical-rl;
+      text-orientation:mixed;
+      transition:background .16s ease,border-color .16s ease,color .16s ease;
+    }
+    .session-rail-current.active{
+      background:var(--accent);
+      border-color:rgba(110,168,254,.34);
+      color:var(--text);
+    }
+    .session-rail-current.empty{
+      color:var(--subtle);
+      opacity:.72;
+    }
+    .session-rail-delete{margin-top:auto}
+    .assistant-main{
+      display:grid;
+      grid-template-rows:minmax(180px,.4fr) minmax(0,1fr);
+      gap:10px;
+      min-height:0;
+    }
+    .assistant-session-card{
+      display:flex;
+      flex-direction:column;
+      min-height:0;
+      overflow:hidden;
+    }
+    .assistant-session-card .section-head{margin-bottom:10px}
+    .assistant-session-card .session-list{flex:1}
     .chat-card{
       display:grid;
       grid-template-rows:auto auto minmax(240px,1fr) auto;
@@ -760,27 +841,26 @@
     @media (max-width:1180px){
       body{overflow:auto}
       .layout{
-        grid-template-columns:minmax(220px,32vw) minmax(0,1fr);
+        grid-template-columns:minmax(0,1fr) minmax(320px,40vw);
         grid-template-areas:
-          "sidebar editor"
-          "assistant assistant";
+          "editor assistant"
+          "sidebar assistant";
         width:100%;
         height:auto;
         min-height:100vh;
         padding:12px;
       }
-      .sidebar{grid-area:sidebar}
-      .editor{grid-area:editor;min-height:760px}
-      .assistant{grid-area:assistant;min-height:560px}
+      .editor{min-height:760px}
+      .assistant{min-height:760px}
       .layout.left-collapsed{
+        grid-template-columns:minmax(0,1fr) minmax(300px,42vw);
+        grid-template-areas:"editor assistant";
+      }
+      .layout.right-collapsed{
         grid-template-columns:minmax(0,1fr);
         grid-template-areas:
           "editor"
-          "assistant";
-      }
-      .layout.right-collapsed{
-        grid-template-columns:minmax(220px,32vw) minmax(0,1fr);
-        grid-template-areas:"sidebar editor";
+          "sidebar";
       }
       .layout.both-collapsed{
         grid-template-columns:minmax(0,1fr);
@@ -796,8 +876,8 @@
         grid-template-columns:1fr;
         grid-template-areas:
           "editor"
-          "sidebar"
-          "assistant";
+          "assistant"
+          "sidebar";
         padding:10px;
         gap:10px;
       }
@@ -821,7 +901,25 @@
       .toolbar-menu{width:100%}
       .toolbar-menu summary{width:100%}
       .toolbar-menu-panel{left:0;right:0}
-      .sidebar-body{grid-template-rows:auto auto}
+      .assistant-chat-shell{grid-template-columns:1fr}
+      .session-rail{
+        flex-direction:row;
+        align-items:center;
+      }
+      .session-rail-btn{
+        width:auto;
+        min-width:44px;
+      }
+      .session-rail-current{
+        flex:1;
+        min-height:0;
+        min-width:92px;
+        padding:8px 12px;
+        writing-mode:horizontal-tb;
+        letter-spacing:.08em;
+      }
+      .session-rail-delete{margin-top:0}
+      .assistant-main{grid-template-rows:minmax(190px,240px) minmax(480px,1fr)}
       .settings-inline{grid-template-columns:1fr}
       .context-drawer{padding:0 10px 8px}
       .context-drawer-body{max-height:none}
@@ -835,22 +933,14 @@
     <section id="sidebarPanel" class="panel sidebar">
       <div class="panel-header">
         <div class="stack">
-          <div class="panel-title">工作区</div>
-          <div class="panel-subtitle">会话与文件树固定在左侧，便于连续切换代码上下文。</div>
-        </div>
-        <div class="panel-actions">
-          <button id="newSessionBtn" class="secondary" type="button">新建会话</button>
-          <button id="deleteSessionBtn" class="danger" type="button">删除会话</button>
+          <div class="panel-title">文件 / 工作区</div>
+          <div class="panel-subtitle">文件树、路径提示与刷新固定在左侧，不再混入会话管理。</div>
         </div>
       </div>
       <div class="sidebar-body">
-        <div class="card sidebar-card">
-          <div class="section-head"><h3>会话列表</h3></div>
-          <div id="sessionList" class="session-list"></div>
-        </div>
         <div class="card sidebar-card sidebar-tree-card">
           <div class="section-head">
-            <h3>文件树</h3>
+            <h3>工作区文件</h3>
             <button id="refreshTreeBtn" class="secondary" type="button">刷新</button>
           </div>
           <div id="workspaceMeta" class="mono">尚未选择会话</div>
@@ -889,7 +979,7 @@
               <button class="secondary" type="button" data-drawer-target="eval">最近评测</button>
             </div>
           </details>
-          <button id="toggleRightSidebarBtn" class="secondary toolbar-toggle" type="button" aria-controls="assistantPanel" aria-expanded="true" aria-label="折叠右侧智能助手侧栏">助手</button>
+          <button id="toggleRightSidebarBtn" class="secondary toolbar-toggle" type="button" aria-controls="assistantPanel" aria-expanded="true" aria-label="折叠右侧会话与对话侧栏">会话</button>
         </div>
       </div>
 
@@ -972,28 +1062,44 @@
     <aside id="assistantPanel" class="panel assistant">
       <div class="panel-header">
         <div class="stack">
-          <div class="panel-title">智能助手</div>
-          <div class="panel-subtitle">对话、改动摘要与运行反馈都集中在这里。</div>
+          <div class="panel-title">会话 / 历史</div>
+          <div class="panel-subtitle">会话切换、历史对话与输入集中在右侧，不再挤占左侧工作区。</div>
         </div>
       </div>
       <div class="assistant-chat-shell">
-        <div class="card chat-card">
-          <div id="chatMeta" class="chat-meta">尚未选择会话</div>
-          <section id="changeSummary" class="change-summary" hidden>
-            <div class="stack">
-              <div class="pane-title">本次修改</div>
-              <div id="changeSummaryMeta" class="pane-subtitle">暂无变更</div>
+        <div id="sessionRail" class="session-rail" aria-label="会话管理">
+          <button id="newSessionBtn" class="secondary session-rail-btn" type="button" aria-label="新建会话">+</button>
+          <div id="currentSessionRail" class="session-rail-current empty" role="status" aria-live="polite" aria-label="尚未选择会话" title="尚未选择会话">当前</div>
+          <button id="deleteSessionBtn" class="danger session-rail-btn session-rail-delete" type="button" aria-label="删除当前会话">-</button>
+        </div>
+        <div class="assistant-main">
+          <div class="card assistant-session-card">
+            <div class="section-head">
+              <div class="stack">
+                <h3>会话列表</h3>
+                <div class="panel-subtitle">按当前工作区与问答模式分组，选中会话后右下区域显示完整历史。</div>
+              </div>
             </div>
-            <div id="changeSummaryList" class="change-summary-list"></div>
-          </section>
-          <div id="messages" class="messages"></div>
-          <div class="composer">
-            <textarea id="messageInput" placeholder="输入你的目标，例如：分析登录模块并修改错误处理，然后补充最小测试。Enter 发送，Shift+Enter 换行。"></textarea>
-            <div class="row" style="margin-top:10px">
-              <button id="sendBtn" type="button">发送任务</button>
-              <button id="stopBtn" class="warn" type="button">停止流式</button>
+            <div id="sessionList" class="session-list"></div>
+          </div>
+          <div class="card chat-card">
+            <div id="chatMeta" class="chat-meta">尚未选择会话</div>
+            <section id="changeSummary" class="change-summary" hidden>
+              <div class="stack">
+                <div class="pane-title">本次修改</div>
+                <div id="changeSummaryMeta" class="pane-subtitle">暂无变更</div>
+              </div>
+              <div id="changeSummaryList" class="change-summary-list"></div>
+            </section>
+            <div id="messages" class="messages"></div>
+            <div class="composer">
+              <textarea id="messageInput" placeholder="输入你的目标，例如：分析登录模块并修改错误处理，然后补充最小测试。Enter 发送，Shift+Enter 换行。"></textarea>
+              <div class="row" style="margin-top:10px">
+                <button id="sendBtn" type="button">发送任务</button>
+                <button id="stopBtn" class="warn" type="button">停止流式</button>
+              </div>
+              <div id="statusBar" class="status-bar"></div>
             </div>
-            <div id="statusBar" class="status-bar"></div>
           </div>
         </div>
       </div>
@@ -1032,6 +1138,7 @@
       toggleLeftSidebarBtn: $("toggleLeftSidebarBtn"),
       toggleRightSidebarBtn: $("toggleRightSidebarBtn"),
       toolbarMoreMenu: $("toolbarMoreMenu"),
+      currentSessionRail: $("currentSessionRail"),
       sessionList: $("sessionList"),
       workspaceMeta: $("workspaceMeta"),
       workspaceTree: $("workspaceTree"),
@@ -1194,7 +1301,7 @@
       els.toggleRightSidebarBtn.setAttribute("aria-expanded", String(!state.rightCollapsed));
       els.toggleRightSidebarBtn.setAttribute(
         "aria-label",
-        state.rightCollapsed ? "展开右侧智能助手侧栏" : "折叠右侧智能助手侧栏"
+        state.rightCollapsed ? "展开右侧会话与对话侧栏" : "折叠右侧会话与对话侧栏"
       );
       els.toggleRightSidebarBtn.classList.toggle("active", !state.rightCollapsed);
     }
@@ -1349,6 +1456,18 @@
       els.chatMeta.textContent = !state.currentSession
         ? "尚未选择会话"
         : `${state.currentSession.title} | ${formatWorkspaceLabel(state.currentSession.workspace_root)}`;
+      renderSessionRail();
+    }
+
+    function renderSessionRail() {
+      const hasSession = !!state.currentSession;
+      const title = hasSession
+        ? `${state.currentSession.title} | ${formatWorkspaceLabel(state.currentSession.workspace_root)}`
+        : "尚未选择会话";
+      els.currentSessionRail.classList.toggle("active", hasSession);
+      els.currentSessionRail.classList.toggle("empty", !hasSession);
+      els.currentSessionRail.setAttribute("aria-label", title);
+      els.currentSessionRail.title = title;
     }
 
     function resetWorkspaceState() {
@@ -2219,7 +2338,7 @@
         finalizeStream("已完成。");
       } catch (error) {
         if (error.name === "AbortError") {
-          setStreamTerminalStatus(state.streamTerminalStatus || (state.streamStopRequested ? "已取消。" : "流式已中断。"));
+          setStreamTerminalStatus(state.streamTerminalStatus || (state.streamStopRequested ? "已取消" : "流式已中断。"));
         } else {
           setStreamTerminalStatus(error.message || "发送失败。");
         }
@@ -2325,7 +2444,7 @@
       state.streamStopRequested = true;
       clearPendingAssistant();
       if (state.currentSession) renderMessages(state.currentSession);
-      setStreamTerminalStatus("已取消。");
+      setStreamTerminalStatus("已取消");
       state.streamController.abort();
     });
     els.toggleLeftSidebarBtn.addEventListener("click", toggleLeftSidebar);

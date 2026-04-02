@@ -18,7 +18,9 @@ def test_index_template_includes_workspace_editor_shell() -> None:
     html = Path("app/web/templates/index.html").read_text(encoding="utf-8")
 
     assert 'id="workspaceTree"' in html
+    assert 'id="sessionRail"' in html
+    assert 'id="currentSessionRail"' in html
+    assert 'id="sessionList"' in html
     assert 'id="fileTabs"' in html
     assert 'id="editorTextarea"' in html
-    assert 'id="diffView"' in html
     assert 'id="saveFileBtn"' in html
