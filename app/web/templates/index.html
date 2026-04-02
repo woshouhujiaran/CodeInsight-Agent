@@ -25,9 +25,10 @@
       --control-radius:10px;
       --shadow:0 18px 48px rgba(2,6,23,.32);
       --layout-gap:8px;
-      --sidebar-width:clamp(248px,18vw,320px);
-      --assistant-width:clamp(340px,26vw,460px);
-      --assistant-nav-width:236px;
+      --sidebar-width:280px;
+      --assistant-nav-width:248px;
+      --assistant-chat-width:336px;
+      --assistant-width:calc(var(--assistant-nav-width) + var(--assistant-chat-width) + 40px);
       --session-rail-width:52px;
     }
 
@@ -93,6 +94,7 @@
       border-radius:var(--panel-radius);
       box-shadow:var(--shadow);
       overflow:hidden;
+      position:relative;
     }
     .sidebar,.assistant,.editor,.sidebar-body,.sidebar-card,.session-list,.workspace-tree,.tree-node,.tree-row,.tree-action,.tree-main,.tree-children,.session-card,.session-title,.session-meta{min-width:0}
     .panel-header{
@@ -904,9 +906,17 @@
       overflow-x:hidden;
     }
     .tree-node,.tree-children{overflow:visible}
-    .tree-row{min-height:24px;padding:0 2px}
-    .tree-main{gap:6px}
-    .tree-children{margin-left:8px;padding-left:8px}
+    .tree-row{
+      align-items:flex-start;
+      min-height:28px;
+      padding:2px 2px;
+    }
+    .tree-main{
+      flex:1;
+      align-items:flex-start;
+      gap:6px;
+    }
+    .tree-children{margin-left:4px;padding-left:6px}
 
     .editor{grid-template-rows:auto auto minmax(0,1fr)}
     .assistant{grid-template-rows:minmax(0,1fr)}
@@ -914,7 +924,7 @@
       padding:10px;
       min-height:0;
       display:grid;
-      grid-template-columns:var(--assistant-nav-width) 10px minmax(0,1fr);
+      grid-template-columns:var(--assistant-nav-width) 10px minmax(var(--assistant-chat-width),1fr);
       gap:0;
       align-items:stretch;
     }
@@ -953,8 +963,10 @@
       flex-direction:column;
       gap:12px;
       min-height:0;
-      overflow:auto;
-      padding-right:4px;
+      overflow-y:auto;
+      overflow-x:hidden;
+      padding-right:6px;
+      scrollbar-gutter:stable;
     }
     .session-list{
       display:flex;
@@ -1078,7 +1090,39 @@
     .assistant-resize-handle:focus-visible::before{
       background:rgba(110,168,254,.52);
     }
+    .panel-edge-resize-handle{
+      position:absolute;
+      top:10px;
+      bottom:10px;
+      width:12px;
+      z-index:80;
+      cursor:col-resize;
+      touch-action:none;
+    }
+    .panel-edge-resize-handle::before{
+      content:"";
+      position:absolute;
+      top:0;
+      bottom:0;
+      left:50%;
+      width:2px;
+      transform:translateX(-50%);
+      border-radius:999px;
+      background:rgba(148,163,184,.14);
+      transition:background .16s ease;
+    }
+    .panel-edge-resize-handle:hover::before,
+    .panel-edge-resize-handle:focus-visible::before{
+      background:rgba(110,168,254,.52);
+    }
+    .sidebar-edge-resize-handle{right:0}
+    .assistant-panel-resize-handle{left:0}
     body.assistant-resizing{
+      cursor:col-resize;
+      user-select:none;
+    }
+    body.sidebar-resizing,
+    body.assistant-panel-resizing{
       cursor:col-resize;
       user-select:none;
     }
@@ -1089,6 +1133,49 @@
       padding-left:10px;
     }
     .assistant-main>.chat-card{flex:1}
+    .workspace-tree,.messages{scrollbar-gutter:stable}
+    .messages{overflow-x:hidden}
+    .chat-meta{
+      white-space:normal;
+      overflow-wrap:anywhere;
+    }
+    .session-title-row{align-items:flex-start}
+    .session-title{
+      white-space:normal;
+      overflow:visible;
+      text-overflow:clip;
+      overflow-wrap:anywhere;
+      line-height:1.35;
+    }
+    .session-meta{
+      white-space:normal;
+      overflow:visible;
+      text-overflow:clip;
+      overflow-wrap:anywhere;
+    }
+    .session-card-actions{align-self:flex-start}
+    .session-card-menu{position:relative;z-index:1}
+    .session-card-menu[open]{z-index:70}
+    .session-card-menu.drop-up .session-card-menu-panel{
+      top:auto;
+      bottom:calc(100% + 6px);
+    }
+    .session-card-menu-panel{max-width:min(180px,calc(100vw - 32px))}
+    .tree-action{align-items:flex-start}
+    .tree-name{
+      display:block;
+      min-width:0;
+      overflow:visible;
+      white-space:normal;
+      word-break:break-word;
+      overflow-wrap:anywhere;
+      line-height:1.35;
+    }
+    .tree-name-base{
+      overflow:visible;
+      text-overflow:clip;
+      white-space:normal;
+    }
 
     @keyframes shimmer{from{transform:translateX(-100%)}to{transform:translateX(100%)}}
 
@@ -1106,6 +1193,7 @@
       }
       .editor{min-height:760px}
       .assistant{min-height:760px}
+      .panel-edge-resize-handle,.assistant-resize-handle{display:none}
       .layout.left-collapsed{
         grid-template-columns:minmax(0,1fr) minmax(300px,42vw);
         grid-template-areas:"editor assistant";
@@ -1203,6 +1291,7 @@
 <body>
   <div id="appLayout" class="layout">
     <section id="sidebarPanel" class="panel sidebar">
+      <div id="sidebarResizeHandle" class="panel-edge-resize-handle sidebar-edge-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize files panel" tabindex="0"></div>
       <div class="panel-header">
         <div class="stack">
           <div class="panel-title">文件 / 工作区</div>
@@ -1327,6 +1416,7 @@
     </section>
 
     <aside id="assistantPanel" class="panel assistant">
+      <div id="assistantPanelResizeHandle" class="panel-edge-resize-handle assistant-panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="Resize conversation panel" tabindex="0"></div>
       <div class="panel-header">
         <div class="stack">
           <div class="panel-title">会话 / 历史</div>
@@ -1374,14 +1464,25 @@
   </div>
   <script>
     const LAYOUT_STORAGE_KEY = "codeinsight.web.layout.v1";
+    const SIDEBAR_WIDTH_STORAGE_KEY = "codeinsight.web.sidebarWidth.v1";
     const SESSION_NAV_WIDTH_STORAGE_KEY = "codeinsight.web.sessionNavWidth.v1";
+    const ASSISTANT_CHAT_WIDTH_STORAGE_KEY = "codeinsight.web.assistantChatWidth.v1";
     const ACTIVE_SESSION_STORAGE_KEY = "codeinsight.web.activeSessionId.v1";
     const DEFAULT_MAX_TURNS = 8;
     const MIN_MAX_TURNS = 1;
     const MAX_MAX_TURNS = 20;
-    const MIN_SESSION_NAV_WIDTH = 220;
+    const DESKTOP_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
+    const MIN_SIDEBAR_WIDTH = 256;
+    const MAX_SIDEBAR_WIDTH = 420;
+    const DEFAULT_SIDEBAR_WIDTH = 280;
+    const MIN_SESSION_NAV_WIDTH = 236;
     const MAX_SESSION_NAV_WIDTH = 360;
     const DEFAULT_SESSION_NAV_WIDTH = 248;
+    const MIN_ASSISTANT_CHAT_WIDTH = 320;
+    const MAX_ASSISTANT_CHAT_WIDTH = 560;
+    const DEFAULT_ASSISTANT_CHAT_WIDTH = 336;
+    const MIN_EDITOR_WIDTH = 60;
+    const ASSISTANT_PANEL_CHROME = 40;
     const CHANGE_SUMMARY_DEBOUNCE_MS = 560;
     const WORKSPACE_AUTO_SYNC_MS = 2500;
     const TREE_ROOT_PATH = ".";
@@ -1521,7 +1622,7 @@
       workspaceEntryIndex: new Map(),
       workspaceSnapshotKey: "",
       workspaceNote: "",
-      expanded: { ".": true },
+      expanded: {},
       openFiles: [],
       activeFilePath: "",
       workspaceTreeModel: null,
@@ -1531,7 +1632,9 @@
       drawerOpen: false,
       sessionSearchQuery: "",
       archivedExpanded: false,
+      sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
       sessionNavWidth: DEFAULT_SESSION_NAV_WIDTH,
+      assistantChatWidth: DEFAULT_ASSISTANT_CHAT_WIDTH,
       leftCollapsed: false,
       rightCollapsed: false
     };
@@ -1544,7 +1647,9 @@
     const els = {
       layout: $("appLayout"),
       sidebarPanel: $("sidebarPanel"),
+      sidebarResizeHandle: $("sidebarResizeHandle"),
       assistantPanel: $("assistantPanel"),
+      assistantPanelResizeHandle: $("assistantPanelResizeHandle"),
       assistantChatShell: $("assistantChatShell"),
       assistantResizeHandle: $("assistantResizeHandle"),
       toggleLeftSidebarBtn: $("toggleLeftSidebarBtn"),
@@ -1749,10 +1854,92 @@
       return parsed;
     }
 
+    function readStoredWidth(key, fallback) {
+      try {
+        const parsed = Number(localStorage.getItem(key));
+        return Number.isFinite(parsed) ? Math.round(parsed) : fallback;
+      } catch {
+        return fallback;
+      }
+    }
+
+    function pxNumber(value) {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function isDesktopResizableLayout() {
+      return !window.matchMedia(DESKTOP_LAYOUT_MEDIA_QUERY).matches;
+    }
+
+    function layoutContentWidth() {
+      const styles = window.getComputedStyle(els.layout);
+      const paddingX = pxNumber(styles.paddingLeft) + pxNumber(styles.paddingRight);
+      return Math.max(0, els.layout.clientWidth - paddingX);
+    }
+
+    function layoutGapPx() {
+      const styles = window.getComputedStyle(els.layout);
+      const gap = pxNumber(styles.columnGap || styles.gap);
+      return gap * (Number(!state.leftCollapsed) + Number(!state.rightCollapsed));
+    }
+
+    function assistantTotalWidth(navWidth = state.sessionNavWidth, chatWidth = state.assistantChatWidth) {
+      return navWidth + chatWidth + ASSISTANT_PANEL_CHROME;
+    }
+
+    function maxSidebarWidth() {
+      const assistantWidth = state.rightCollapsed ? 0 : assistantTotalWidth();
+      const available = layoutContentWidth() - layoutGapPx() - assistantWidth - MIN_EDITOR_WIDTH;
+      return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, Math.floor(available)));
+    }
+
+    function maxSessionNavWidth() {
+      const sidebarWidth = state.leftCollapsed ? 0 : state.sidebarWidth;
+      const available = layoutContentWidth()
+        - layoutGapPx()
+        - sidebarWidth
+        - state.assistantChatWidth
+        - ASSISTANT_PANEL_CHROME
+        - MIN_EDITOR_WIDTH;
+      return Math.max(MIN_SESSION_NAV_WIDTH, Math.min(MAX_SESSION_NAV_WIDTH, Math.floor(available)));
+    }
+
+    function maxAssistantChatWidth() {
+      const sidebarWidth = state.leftCollapsed ? 0 : state.sidebarWidth;
+      const available = layoutContentWidth()
+        - layoutGapPx()
+        - sidebarWidth
+        - state.sessionNavWidth
+        - ASSISTANT_PANEL_CHROME
+        - MIN_EDITOR_WIDTH;
+      return Math.max(MIN_ASSISTANT_CHAT_WIDTH, Math.min(MAX_ASSISTANT_CHAT_WIDTH, Math.floor(available)));
+    }
+
+    function clampSidebarWidth(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return DEFAULT_SIDEBAR_WIDTH;
+      return Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxSidebarWidth(), Math.round(parsed)));
+    }
+
     function clampSessionNavWidth(value) {
       const parsed = Number(value);
       if (!Number.isFinite(parsed)) return DEFAULT_SESSION_NAV_WIDTH;
-      return Math.max(MIN_SESSION_NAV_WIDTH, Math.min(MAX_SESSION_NAV_WIDTH, Math.round(parsed)));
+      return Math.max(MIN_SESSION_NAV_WIDTH, Math.min(maxSessionNavWidth(), Math.round(parsed)));
+    }
+
+    function clampAssistantChatWidth(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return DEFAULT_ASSISTANT_CHAT_WIDTH;
+      return Math.max(MIN_ASSISTANT_CHAT_WIDTH, Math.min(maxAssistantChatWidth(), Math.round(parsed)));
+    }
+
+    function normalizePanelWidths() {
+      for (let index = 0; index < 2; index += 1) {
+        state.sidebarWidth = clampSidebarWidth(state.sidebarWidth);
+        state.sessionNavWidth = clampSessionNavWidth(state.sessionNavWidth);
+        state.assistantChatWidth = clampAssistantChatWidth(state.assistantChatWidth);
+      }
     }
 
     function readLayoutState() {
@@ -1767,11 +1954,9 @@
         state.leftCollapsed = false;
         state.rightCollapsed = false;
       }
-      try {
-        state.sessionNavWidth = clampSessionNavWidth(localStorage.getItem(SESSION_NAV_WIDTH_STORAGE_KEY));
-      } catch {
-        state.sessionNavWidth = DEFAULT_SESSION_NAV_WIDTH;
-      }
+      state.sidebarWidth = readStoredWidth(SIDEBAR_WIDTH_STORAGE_KEY, DEFAULT_SIDEBAR_WIDTH);
+      state.sessionNavWidth = readStoredWidth(SESSION_NAV_WIDTH_STORAGE_KEY, DEFAULT_SESSION_NAV_WIDTH);
+      state.assistantChatWidth = readStoredWidth(ASSISTANT_CHAT_WIDTH_STORAGE_KEY, DEFAULT_ASSISTANT_CHAT_WIDTH);
     }
 
     function persistLayoutState() {
@@ -1786,15 +1971,25 @@
       } catch {
       }
       try {
+        localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(state.sidebarWidth)));
+      } catch {
+      }
+      try {
         localStorage.setItem(SESSION_NAV_WIDTH_STORAGE_KEY, String(clampSessionNavWidth(state.sessionNavWidth)));
+      } catch {
+      }
+      try {
+        localStorage.setItem(ASSISTANT_CHAT_WIDTH_STORAGE_KEY, String(clampAssistantChatWidth(state.assistantChatWidth)));
       } catch {
       }
     }
 
     function applyLayoutState() {
       const bothCollapsed = state.leftCollapsed && state.rightCollapsed;
-      state.sessionNavWidth = clampSessionNavWidth(state.sessionNavWidth);
-      els.assistantPanel.style.setProperty("--assistant-nav-width", `${state.sessionNavWidth}px`);
+      normalizePanelWidths();
+      els.layout.style.setProperty("--sidebar-width", `${state.sidebarWidth}px`);
+      els.layout.style.setProperty("--assistant-nav-width", `${state.sessionNavWidth}px`);
+      els.layout.style.setProperty("--assistant-chat-width", `${state.assistantChatWidth}px`);
       els.layout.classList.toggle("left-collapsed", state.leftCollapsed);
       els.layout.classList.toggle("right-collapsed", state.rightCollapsed);
       els.layout.classList.toggle("both-collapsed", bothCollapsed);
@@ -1846,23 +2041,49 @@
       }
     }
 
-    function startAssistantResize(event) {
-      if (window.matchMedia("(max-width: 860px)").matches || state.rightCollapsed) return;
+    function beginHorizontalResize(event, bodyClass, onMove) {
       event.preventDefault();
-      const shellRect = els.assistantChatShell.getBoundingClientRect();
       const move = moveEvent => {
-        state.sessionNavWidth = clampSessionNavWidth(moveEvent.clientX - shellRect.left);
+        onMove(moveEvent);
         applyLayoutState();
       };
       const stop = () => {
         window.removeEventListener("pointermove", move);
         window.removeEventListener("pointerup", stop);
-        document.body.classList.remove("assistant-resizing");
+        document.body.classList.remove(bodyClass);
         persistLayoutState();
       };
-      document.body.classList.add("assistant-resizing");
+      document.body.classList.add(bodyClass);
       window.addEventListener("pointermove", move);
       window.addEventListener("pointerup", stop);
+    }
+
+    function startSidebarResize(event) {
+      if (!isDesktopResizableLayout() || state.leftCollapsed) return;
+      const panelRect = els.sidebarPanel.getBoundingClientRect();
+      beginHorizontalResize(event, "sidebar-resizing", moveEvent => {
+        state.sidebarWidth = clampSidebarWidth(moveEvent.clientX - panelRect.left);
+      });
+    }
+
+    function startAssistantPanelResize(event) {
+      if (!isDesktopResizableLayout() || state.rightCollapsed) return;
+      const panelRect = els.assistantPanel.getBoundingClientRect();
+      const panelRight = panelRect.right;
+      beginHorizontalResize(event, "assistant-panel-resizing", moveEvent => {
+        const totalWidth = panelRight - moveEvent.clientX;
+        state.assistantChatWidth = clampAssistantChatWidth(totalWidth - state.sessionNavWidth - ASSISTANT_PANEL_CHROME);
+      });
+    }
+
+    function startAssistantResize(event) {
+      if (!isDesktopResizableLayout() || state.rightCollapsed) return;
+      const shellRect = els.assistantChatShell.getBoundingClientRect();
+      const shellStyles = window.getComputedStyle(els.assistantChatShell);
+      const shellContentLeft = shellRect.left + pxNumber(shellStyles.paddingLeft);
+      beginHorizontalResize(event, "assistant-resizing", moveEvent => {
+        state.sessionNavWidth = clampSessionNavWidth(moveEvent.clientX - shellContentLeft);
+      });
     }
 
     function sessionSettings() {
@@ -1989,18 +2210,6 @@
       return state.openFiles.some(file => file.dirty);
     }
 
-    function ensureExpanded(path) {
-      const parts = normPath(path).split("/");
-      let current = "";
-      let changed = false;
-      for (let index = 0; index < parts.length - 1; index += 1) {
-        current = current ? `${current}/${parts[index]}` : parts[index];
-        if (state.expanded[current] === false) changed = true;
-        state.expanded[current] = true;
-      }
-      return changed;
-    }
-
     function upsertOpenFile(file) {
       const normalizedPath = normPath(file.path);
       const index = state.openFiles.findIndex(item => item.path === normalizedPath);
@@ -2008,7 +2217,6 @@
       if (index >= 0) state.openFiles[index] = merged;
       else state.openFiles.push(merged);
       state.activeFilePath = merged.path;
-      ensureExpanded(merged.path);
       return merged;
     }
 
@@ -2048,14 +2256,9 @@
       state.workspaceSnapshotKey = nextSnapshotKey;
       state.workspaceNote = note;
 
-      for (const entry of entries) {
-        if (entry.is_dir && normPath(entry.path).split("/").length <= 1) state.expanded[entry.path] = true;
-      }
-
       state.workspaceTreeModel = null;
       state.workspaceNodeIndex = new Map();
       syncOpenFilesFromWorkspace();
-      if (state.activeFilePath) ensureExpanded(state.activeFilePath);
       return changed;
     }
 
@@ -2119,7 +2322,7 @@
       state.workspaceEntryIndex = new Map();
       state.workspaceSnapshotKey = "";
       state.workspaceNote = "";
-      state.expanded = { ".": true };
+      state.expanded = {};
       state.openFiles = [];
       state.activeFilePath = "";
       state.workspaceTreeModel = null;
@@ -2219,6 +2422,20 @@
       return items.map(session => renderSessionItem(session, options)).join("");
     }
 
+    function syncSessionMenuDirection(menu) {
+      if (!menu) return;
+      menu.classList.remove("drop-up");
+      const panel = menu.querySelector(".session-card-menu-panel");
+      const scrollHost = menu.closest(".session-nav-scroll");
+      if (!panel || !scrollHost) return;
+      const panelHeight = panel.offsetHeight || 120;
+      const menuRect = menu.getBoundingClientRect();
+      const scrollRect = scrollHost.getBoundingClientRect();
+      const spaceBelow = scrollRect.bottom - menuRect.bottom;
+      const spaceAbove = menuRect.top - scrollRect.top;
+      if (spaceBelow < panelHeight + 8 && spaceAbove > spaceBelow) menu.classList.add("drop-up");
+    }
+
     function closeSessionMenu(target) {
       target?.closest("[data-session-menu]")?.removeAttribute("open");
     }
@@ -2273,6 +2490,16 @@
           event.stopPropagation();
           closeSessionMenu(button);
           deleteSessionById(button.dataset.sessionDelete).catch(error => setStatus(error.message));
+        });
+      });
+      container.querySelectorAll("[data-session-menu]").forEach(menu => {
+        menu.addEventListener("toggle", () => {
+          menu.classList.remove("drop-up");
+          if (!menu.open) return;
+          document.querySelectorAll("[data-session-menu][open]").forEach(other => {
+            if (other !== menu) other.open = false;
+          });
+          requestAnimationFrame(() => syncSessionMenuDirection(menu));
         });
       });
     }
@@ -2443,7 +2670,7 @@
 
     function renderTreeNodes(nodes) {
       return nodes.map(node => {
-        const open = state.expanded[node.path] !== false;
+      const open = state.expanded[node.path] === true;
         const active = !node.is_dir && state.activeFilePath === node.path ? "active" : "";
         const actionAttr = node.is_dir
           ? `data-tree-dir="${escapeHtml(node.path)}"`
@@ -2494,7 +2721,7 @@
         renderWorkspaceTree();
         return;
       }
-      const open = state.expanded[normalizedPath] !== false;
+      const open = state.expanded[normalizedPath] === true;
       treeNode.dataset.open = open ? "true" : "false";
       const toggle = treeNode.querySelector(`[data-tree-toggle="${escapeSelector(normalizedPath)}"]`) || treeNode.querySelector("[data-tree-toggle]");
       if (toggle) {
@@ -2519,7 +2746,7 @@
 
     function toggleTreeNode(path) {
       const normalizedPath = normPath(path || TREE_ROOT_PATH) || TREE_ROOT_PATH;
-      state.expanded[normalizedPath] = state.expanded[normalizedPath] === false;
+      state.expanded[normalizedPath] = state.expanded[normalizedPath] !== true;
       updateTreeNodeDom(normalizedPath);
     }
 
@@ -2729,10 +2956,8 @@
 
     function activateFile(path) {
       const normalizedPath = normPath(path);
-      const expansionChanged = ensureExpanded(normalizedPath);
       state.activeFilePath = normalizedPath;
-      if (expansionChanged) renderWorkspaceTree();
-      else syncWorkspaceSelection();
+      syncWorkspaceSelection();
       syncFileTabsState();
       syncChangeSummarySelection();
       renderEditor({ refreshSummary: false });
@@ -2951,12 +3176,8 @@
       }
       const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
       state.workspaceEntries = payload.entries || [];
-      for (const entry of state.workspaceEntries) {
-        if (entry.is_dir && normPath(entry.path).split("/").length <= 1) state.expanded[entry.path] = true;
-      }
       state.workspaceTreeModel = null;
       state.workspaceNodeIndex = new Map();
-      if (state.activeFilePath) ensureExpanded(state.activeFilePath);
       renderWorkspaceMeta(payload.note || "");
       renderWorkspaceTree();
       if (!silent) setStatus("文件树已刷新。");
@@ -3055,10 +3276,8 @@
       if (file?.dirty && !window.confirm(`关闭 ${file.path} 会丢失未保存修改。是否继续？`)) return;
       state.openFiles = state.openFiles.filter(item => item.path !== path);
       if (state.activeFilePath === path) state.activeFilePath = state.openFiles[0]?.path || "";
-      const expansionChanged = state.activeFilePath ? ensureExpanded(state.activeFilePath) : false;
       renderFileTabs();
-      if (expansionChanged) renderWorkspaceTree();
-      else syncWorkspaceSelection();
+      syncWorkspaceSelection();
       syncChangeSummarySelection();
       renderEditor({ refreshSummary: true });
     }
@@ -3376,7 +3595,7 @@
 
     function renderTreeNodes(nodes) {
       return nodes.map(node => {
-        const open = state.expanded[node.path] !== false;
+        const open = state.expanded[node.path] === true;
         const active = !node.is_dir && state.activeFilePath === node.path ? "active" : "";
         const actionAttr = node.is_dir
           ? `data-tree-dir="${escapeHtml(node.path)}"`
@@ -3390,7 +3609,7 @@
         const childrenBody = open && node.children.length ? renderTreeNodes(node.children) : "";
         return `
           <div class="tree-node" data-tree-node="${escapeHtml(node.path)}" data-open="${open ? "true" : "false"}">
-            <div class="tree-row ${node.is_dir ? "directory" : "file"} ${active}" data-tree-row-path="${escapeHtml(node.path)}" style="padding-left:${Math.max(0, (node.depth - 1) * 14)}px">
+            <div class="tree-row ${node.is_dir ? "directory" : "file"} ${active}" data-tree-row-path="${escapeHtml(node.path)}" style="padding-left:${Math.max(0, (node.depth - 1) * 10)}px">
               ${toggle}
               <button class="tree-action" type="button" ${actionAttr} title="${escapeHtml(node.path)}">
                 <span class="tree-main">
@@ -3417,7 +3636,7 @@
         renderWorkspaceTree();
         return;
       }
-      const open = state.expanded[normalizedPath] !== false;
+      const open = state.expanded[normalizedPath] === true;
       treeNode.dataset.open = open ? "true" : "false";
       const toggle = treeNode.querySelector(`[data-tree-toggle="${escapeSelector(normalizedPath)}"]`) || treeNode.querySelector("[data-tree-toggle]");
       if (toggle) {
@@ -3844,8 +4063,10 @@
     els.reloadFileBtn.addEventListener("click", () => reloadActiveFile().catch(error => setStatus(error.message)));
     els.saveFileBtn.addEventListener("click", () => saveActiveFile().catch(error => setStatus(error.message)));
     els.stopBtn.addEventListener("click", requestStopStream);
+    els.sidebarResizeHandle?.addEventListener("pointerdown", startSidebarResize);
     els.toggleLeftSidebarBtn.addEventListener("click", toggleLeftSidebar);
     els.toggleRightSidebarBtn.addEventListener("click", toggleRightSidebar);
+    els.assistantPanelResizeHandle?.addEventListener("pointerdown", startAssistantPanelResize);
     els.assistantResizeHandle.addEventListener("pointerdown", startAssistantResize);
 
     document.addEventListener("click", event => {
@@ -3870,6 +4091,7 @@
     window.addEventListener("focus", () => {
       syncWorkspaceIfChanged({ silent: true }).catch(() => {});
     });
+    window.addEventListener("resize", applyLayoutState);
 
     readLayoutState();
     applyLayoutState();
