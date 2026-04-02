@@ -1370,6 +1370,7 @@
   <script>
     const LAYOUT_STORAGE_KEY = "codeinsight.web.layout.v1";
     const SESSION_NAV_WIDTH_STORAGE_KEY = "codeinsight.web.sessionNavWidth.v1";
+    const ACTIVE_SESSION_STORAGE_KEY = "codeinsight.web.activeSessionId.v1";
     const DEFAULT_MAX_TURNS = 8;
     const MIN_MAX_TURNS = 1;
     const MAX_MAX_TURNS = 20;
@@ -1450,7 +1451,7 @@
 
       const sessionNavTools = document.createElement("div");
       sessionNavTools.className = "session-nav-tools";
-      sessionNavTools.append(newSessionBtn);
+      sessionNavTools.append(newSessionBtn, deleteSessionBtn);
 
       const sessionNavHead = document.createElement("div");
       sessionNavHead.className = "session-nav-head";
@@ -1644,6 +1645,22 @@
       return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "\\$&");
     }
 
+    function readActiveSessionId() {
+      try {
+        return localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY) || "";
+      } catch {
+        return "";
+      }
+    }
+
+    function persistActiveSessionId(sessionId) {
+      try {
+        if (sessionId) localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, sessionId);
+        else localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+      } catch {
+      }
+    }
+
     function nextFileRevision() {
       fileRevisionCounter += 1;
       return fileRevisionCounter;
@@ -1813,6 +1830,49 @@
       els.maxTurnsInput.value = maxTurns;
     }
 
+    function sameSessionSettings(left, right) {
+      const a = left || {};
+      const b = right || {};
+      return Boolean(a.allow_write) === Boolean(b.allow_write)
+        && Boolean(a.allow_shell) === Boolean(b.allow_shell)
+        && Boolean(a.auto_run_tests) === Boolean(b.auto_run_tests)
+        && String(a.test_command || "") === String(b.test_command || "")
+        && normalizeMaxTurns(a.max_turns) === normalizeMaxTurns(b.max_turns);
+    }
+
+    function currentSessionPayload() {
+      return {
+        workspace_root: els.workspaceInput.value.trim(),
+        settings: sessionSettings()
+      };
+    }
+
+    function sessionPayloadChanged(payload, session = state.currentSession) {
+      if (!session) return true;
+      return String(session.workspace_root || "") !== String(payload.workspace_root || "")
+        || !sameSessionSettings(payload.settings, session.settings);
+    }
+
+    function sessionSummaryFromSnapshot(session) {
+      return {
+        session_id: session.session_id,
+        title: session.title,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        workspace_root: session.workspace_root || "",
+        pinned: !!session.pinned,
+        archived: !!session.archived
+      };
+    }
+
+    function upsertSessionSummary(session) {
+      const summary = sessionSummaryFromSnapshot(session);
+      const index = state.sessions.findIndex(item => item.session_id === summary.session_id);
+      if (index >= 0) state.sessions[index] = { ...state.sessions[index], ...summary };
+      else state.sessions.push(summary);
+      return summary;
+    }
+
     function renderContextDrawer() {
       const panel = drawerMeta[state.drawerPanel] ? state.drawerPanel : "settings";
       const meta = drawerMeta[panel];
@@ -1900,7 +1960,7 @@
       runTestsBtnEl.disabled = busy;
       saveSettingsBtnEl.disabled = busy;
       els.newSessionBtn.disabled = busy;
-      els.deleteSessionBtn.disabled = busy;
+      if (els.deleteSessionBtn) els.deleteSessionBtn.disabled = busy;
       els.openFolderBtn.disabled = busy;
       els.openFileBtn.disabled = busy;
       els.messageInput.disabled = busy;
@@ -1917,11 +1977,17 @@
         headers: { "Content-Type": "application/json" },
         ...options
       });
+      const body = await response.json().catch(() => null);
       if (!response.ok) {
-        const body = await response.json().catch(() => ({}));
-        throw new Error(body.detail || `请求失败: ${response.status}`);
+        throw new Error(body?.detail || body?.message || `请求失败: ${response.status}`);
       }
-      return response.json();
+      if (body && typeof body === "object" && "code" in body && "data" in body) {
+        if (Number(body.code) !== 0) {
+          throw new Error(body.message || `请求失败: ${response.status}`);
+        }
+        return body.data;
+      }
+      return body;
     }
 
     function updateMeta() {
@@ -1991,6 +2057,11 @@
     }
 
     function preferredSession(filterRoot = currentWorkspaceFilter()) {
+      if (arguments.length === 0) {
+        const activeSessionId = readActiveSessionId();
+        const matched = state.sessions.find(session => session.session_id === activeSessionId);
+        if (matched) return matched;
+      }
       const scoped = filterRoot ? sessionsForWorkspace(filterRoot) : qaSessions();
       const activeScoped = sortSessions(scoped.filter(session => !session.archived));
       const activeAll = sortSessions(state.sessions.filter(session => !session.archived));
@@ -2617,15 +2688,17 @@
         method: "PATCH",
         body: JSON.stringify(payload)
       });
+      upsertSessionSummary(updated);
       if (state.currentSession?.session_id === sessionId) {
         state.currentSession = updated;
+        persistActiveSessionId(updated.session_id);
         applySessionToControls(state.currentSession);
         renderMessages(state.currentSession);
         renderTasks(state.currentSession.tasks);
         renderTestSummary(state.currentSession.last_test_summary);
         updateMeta();
       }
-      await refreshSessions();
+      renderSessions();
       return updated;
     }
 
@@ -2637,6 +2710,8 @@
       if (state.currentSession?.session_id === id) return;
       if (hasDirtyOpenFiles() && !window.confirm("切换会话会丢失未保存的文件修改。是否继续？")) return;
       state.currentSession = await fetchJson(`/sessions/${id}`);
+      persistActiveSessionId(state.currentSession.session_id);
+      upsertSessionSummary(state.currentSession);
       applySessionToControls(state.currentSession);
       resetWorkspaceState();
       renderMessages(state.currentSession);
@@ -2659,7 +2734,8 @@
           settings: sessionSettings()
         })
       });
-      await refreshSessions();
+      upsertSessionSummary(session);
+      renderSessions();
       await loadSession(session.session_id);
       if (state.pendingPickedFilePath) {
         const pendingPath = state.pendingPickedFilePath;
@@ -2673,19 +2749,30 @@
 
     async function persistCurrentControls({ silent = false, refreshWorkspace = false } = {}) {
       if (!state.currentSession) throw new Error("请先创建或选择会话。");
-      const nextRoot = els.workspaceInput.value.trim();
+      const payload = currentSessionPayload();
+      const nextRoot = payload.workspace_root;
       const previousRoot = state.currentSession.workspace_root || "";
       if (nextRoot !== previousRoot && hasDirtyOpenFiles() && !window.confirm("切换工作区会丢失未保存的文件修改。是否继续？")) {
         throw new Error("已取消切换工作区。");
       }
+      if (!sessionPayloadChanged(payload)) {
+        if (refreshWorkspace || nextRoot !== previousRoot) {
+          resetWorkspaceState();
+          await refreshWorkspaceTree({ skipPersist: true, silent: true });
+        } else {
+          renderWorkspaceMeta();
+          renderEditor();
+        }
+        if (!silent) setStatus("设置已同步。");
+        return state.currentSession;
+      }
       state.currentSession = await fetchJson(`/sessions/${state.currentSession.session_id}`, {
         method: "PATCH",
-        body: JSON.stringify({
-          workspace_root: nextRoot,
-          settings: sessionSettings()
-        })
+        body: JSON.stringify(payload)
       });
-      await refreshSessions();
+      persistActiveSessionId(state.currentSession.session_id);
+      upsertSessionSummary(state.currentSession);
+      applySessionToControls(state.currentSession);
       renderSessions();
       renderTestSummary(state.currentSession.last_test_summary);
       updateMeta();
@@ -2956,12 +3043,14 @@
     function handleStreamEvent(eventName, data) {
       if (eventName === "session") {
         state.currentSession = data;
+        persistActiveSessionId(state.currentSession.session_id);
+        upsertSessionSummary(state.currentSession);
         applySessionToControls(state.currentSession);
         renderMessages(state.currentSession);
         renderTasks(state.currentSession.tasks);
         renderTestSummary(state.currentSession.last_test_summary);
         updateMeta();
-        refreshSessions().catch(error => setStatus(error.message));
+        renderSessions();
         return;
       }
       if (eventName === "task_board") {
@@ -3082,11 +3171,13 @@
         await persistCurrentControls({ silent: true, refreshWorkspace: false });
         const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/tests/run`, { method: "POST" });
         state.currentSession = payload.session;
+        persistActiveSessionId(state.currentSession.session_id);
+        upsertSessionSummary(state.currentSession);
         renderTestSummary(payload.summary);
         renderMessages(state.currentSession);
         renderTasks(state.currentSession.tasks);
         updateMeta();
-        await refreshSessions();
+        renderSessions();
         setStatus("测试执行完成。");
       } catch (error) {
         setStatus(error.message || "测试执行失败。");
@@ -3107,7 +3198,9 @@
       const title = target?.title || "该会话";
       if (!window.confirm(`确认永久删除会话“${title}”？此操作无法恢复。`)) return;
       await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
-      await refreshSessions();
+      state.sessions = state.sessions.filter(session => session.session_id !== sessionId);
+      if (readActiveSessionId() === sessionId) persistActiveSessionId("");
+      renderSessions();
       setStatus("会话已删除。");
     }
 
@@ -3127,10 +3220,12 @@
       if (!window.confirm(`确认永久删除会话“${title}”？这会移除消息、任务、最近测试记录和当前会话设置，且无法恢复。`)) return;
       try {
         await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
+        state.sessions = state.sessions.filter(session => session.session_id !== sessionId);
+        persistActiveSessionId("");
         state.currentSession = null;
         clearPendingAssistant();
         resetWorkspaceState();
-        await refreshSessions();
+        renderSessions();
         const nextSession = preferredSession(nextFilter);
         if (nextSession) await loadSession(nextSession.session_id);
         else {
@@ -3178,9 +3273,13 @@
     els.openFolderBtn.addEventListener("click", () => pickLocalPath("folder"));
     els.openFileBtn.addEventListener("click", () => pickLocalPath("file"));
     els.saveSettingsBtn.addEventListener("click", () => persistCurrentControls({ refreshWorkspace: true }).catch(error => setStatus(error.message)));
-    els.deleteSessionBtn.addEventListener("click", () => deleteCurrentSession());
-    drawerButtons.forEach(button => {
-      button.addEventListener("click", () => toggleContextDrawer(button.dataset.drawerTarget));
+    els.deleteSessionBtn?.addEventListener("click", () => deleteCurrentSession());
+    els.toolbarMoreMenu?.addEventListener("click", event => {
+      const target = event.target.closest("[data-drawer-target]");
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggleContextDrawer(target.dataset.drawerTarget);
     });
     els.closeDrawerBtn.addEventListener("click", () => {
       state.drawerOpen = false;
@@ -3263,10 +3362,13 @@
     renderFileTabs();
     renderEditor();
 
-    Promise.all([
+    Promise.allSettled([
       refreshSessions(),
       fetchJson("/eval/latest").then(renderEval)
-    ]).then(async () => {
+    ]).then(async results => {
+      const [sessionsResult, evalResult] = results;
+      if (sessionsResult.status === "rejected") throw sessionsResult.reason;
+      if (evalResult.status === "rejected") renderEval(null);
       const nextSession = preferredSession();
       if (nextSession) await loadSession(nextSession.session_id);
       else updateMeta();
