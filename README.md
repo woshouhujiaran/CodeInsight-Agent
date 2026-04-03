@@ -1,21 +1,23 @@
 # CodeInsight-Agent
 
-一个基于 FastAPI 的本地代码助手 Web 应用。当前仓库主要提供：
+一个基于 FastAPI 的本地代码助手 Web 应用，提供会话管理、聊天、工作区文件树、代码编辑、流式响应，以及面向当前项目的 Agent 执行能力。
 
-- Web UI：会话管理、聊天、文件树、编辑器、流式响应
+当前仓库主要包含：
+
+- Web UI：会话列表、聊天区、文件树、编辑器、测试入口
 - Agent 执行链路：Planner / Executor / Memory / Workspace 工具
 - 面向当前工作区的读写、搜索、测试触发能力
 - 会话持久化、索引构建、评测与清理脚本
 
-如果你现在只是想把项目跑起来，直接看下面的“快速开始”。
+如果你只是想尽快跑起来，先看下面的“快速开始”。
 
 ## 快速开始
 
 ### 1. 环境要求
 
 - Python `3.10+`
-- Windows / macOS / Linux 均可
-- 需要可用的 LLM API Key
+- Windows / macOS / Linux
+- 可用的 LLM API Key
 
 ### 2. 安装依赖
 
@@ -45,7 +47,7 @@ LLM_MODEL=deepseek-chat
 DEEPSEEK_API_KEY=你的_key
 ```
 
-如果你想用 OpenAI 兼容接口，可以改成：
+如果你想使用 OpenAI 兼容接口，可以改成：
 
 ```env
 LLM_PROVIDER=openai
@@ -85,7 +87,7 @@ python -m app.web
 uvicorn app.web.main:app --reload --port 8765
 ```
 
-## Web 里怎么用
+## Web 怎么用
 
 ### 模式 1：问答模式
 
@@ -103,16 +105,16 @@ uvicorn app.web.main:app --reload --port 8765
 
 1. 新建会话
 2. 在会话设置里填写 `workspace_root`
-3. 需要改代码时，打开 `允许写盘`
-4. 需要跑命令或测试时，打开 `允许命令`
-5. 如果要用“运行测试”按钮，填写 `test_command`
+3. 需要改代码时，打开 `allow_write`
+4. 需要跑命令或测试时，打开 `allow_shell`
+5. 如果要使用“运行测试”按钮，填写 `test_command`
 6. 在右侧输入任务，例如“修复登录接口并补最小测试”
 
 常见设置说明：
 
 - `workspace_root`：当前会话绑定的项目目录，支持绝对路径，也支持相对于仓库根目录的路径
 - `allow_write`：允许 Agent 修改工作区内文件
-- `allow_shell`：允许 Agent 执行白名单命令
+- `allow_shell`：允许 Agent 执行命令
 - `test_command`：例如 `python -m pytest -q`
 - `auto_run_tests`：检测到写入后自动运行测试
 - `max_turns`：单次任务最多执行的 agent 回合数
@@ -120,16 +122,27 @@ uvicorn app.web.main:app --reload --port 8765
 ### 文件树 / 编辑器 / 会话区
 
 - 左侧：当前工作区文件树
-- 中间：文件编辑器，可多开标签
+- 中间：代码编辑器，支持多标签
 - 右侧：会话列表、聊天区、发送/停止按钮
 
 会话数据默认保存在：
 
 `data/sessions/<session_id>.json`
 
+## 前端资源结构
+
+当前 Web 前端已经从单个超长模板拆成模板和静态资源，方便维护：
+
+- `app/web/templates/index.html`：页面骨架和 DOM 结构
+- `app/web/static/web/index.css`：页面样式
+- `app/web/static/web/index.js`：前端交互、布局拖拽、会话与编辑器逻辑
+- `app/web/main.py`：挂载 `/static`，主页会自动加载上述 CSS / JS
+
+如果要调整前端，通常只需要修改 `index.css` 或 `index.js`，而不是继续在 `index.html` 里维护大段内联代码。
+
 ## 首次使用建议
 
-如果你准备在一个真实项目里长期使用任务模式，建议先构建索引：
+如果你准备在真实项目里长期使用任务模式，建议先构建索引：
 
 ```bash
 python scripts/build_index.py --workspace-root .
@@ -141,7 +154,7 @@ python scripts/build_index.py --workspace-root .
 python scripts/build_index.py --workspace-root . --force-reindex
 ```
 
-如果你只是在问答模式里聊天，可以先不做这一步。
+如果你只是用问答模式聊天，可以先不做这一步。
 
 ## 常用命令
 
@@ -167,7 +180,7 @@ python scripts/run_eval.py
 
 `outputs/eval_result.json`
 
-Web 页面中的“最近评测”和 `/eval/latest` 会读取这个文件。
+Web 页面里的“最近评测”和 `/eval/latest` 会读取这个文件。
 
 ### 清理产物
 
@@ -192,8 +205,10 @@ pytest -q
 
 ## 目录说明
 
-- `app/web/main.py`：FastAPI 入口
-- `app/web/templates/index.html`：前端页面
+- `app/web/main.py`：FastAPI 入口，负责挂载静态资源
+- `app/web/templates/index.html`：前端页面骨架
+- `app/web/static/web/index.css`：前端样式
+- `app/web/static/web/index.js`：前端交互逻辑
 - `app/web/service.py`：Web 服务层
 - `app/web/session_store.py`：会话持久化
 - `scripts/build_index.py`：构建索引
@@ -216,7 +231,7 @@ pytest -q
 
 ### 4. 不想依赖本地 embedding 模型
 
-可以在 `.env` 里把：
+可以在 `.env` 里设置：
 
 ```env
 EMBEDDING_BACKEND=hash
@@ -244,5 +259,5 @@ python -m app.web
 1. 打开 `http://127.0.0.1:8765`
 2. 新建会话
 3. 填 `workspace_root`
-4. 按需打开“允许写盘 / 允许命令”
+4. 按需打开 `allow_write` / `allow_shell`
 5. 输入任务并发送
