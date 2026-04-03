@@ -60,7 +60,7 @@ class WebAgentService:
                 raise ValueError("workspace_root 不能为空。")
             return ""
 
-        candidate = Path(text)
+        candidate = Path(text).expanduser()
         resolved = candidate.resolve() if candidate.is_absolute() else (self.repo_root / candidate).resolve()
         if not resolved.exists():
             raise ValueError(f"工作区不存在：{resolved}")

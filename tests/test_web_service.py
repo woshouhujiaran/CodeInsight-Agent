@@ -175,6 +175,13 @@ def test_turn_mode_decider_prefers_qa_for_general_questions_and_clarifications()
     assert decider.infer("在当前项目里找到会话存储实现，并说明怎么验证。") == "agentic"
 
 
+def test_turn_mode_decider_treats_code_review_requests_as_agentic() -> None:
+    decider = TurnModeDecider()
+
+    assert decider.infer("我感觉现在的使用体验不够好，你能全面阅读一下后端代码，找到能改进的地方吗") == "agentic"
+    assert decider.infer("帮我 review 一下后端代码，找出影响体验的问题") == "agentic"
+
+
 def test_web_service_qa_prompt_encourages_clarification_for_ambiguous_requests(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root="")
@@ -291,6 +298,64 @@ def test_web_service_uses_compact_board_for_readonly_analysis_requests(tmp_path:
     assert len(factory.created_agents[0].recorded_prompts) == 3
 
 
+def test_web_service_uses_review_board_for_review_requests(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("已定位后端入口。"),
+            build_turn("已审查输入输出。"),
+            build_turn("已整理改进建议。"),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(
+        session["session_id"],
+        "我感觉现在的使用体验不够好，你能全面阅读一下后端代码，找到能改进的地方吗",
+    )
+
+    titles = [task["title"] for task in result["session"]["tasks"]]
+    assert titles == ["定位关键后端入口", "审查输入输出与状态流转", "汇总结论与改进建议"]
+
+
+def test_web_service_carries_prior_tool_context_into_later_task_prompts(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": True, "test_command": "python -m pytest -q"},
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn(
+                "已定位后端入口。",
+                [
+                    {
+                        "tool": "search_tool",
+                        "status": "ok",
+                        "output": '[{"file_path":"app/web/service.py","score":0.99}]',
+                    }
+                ],
+            ),
+            build_turn("已审查输入输出。", [{"tool": "analyze_tool", "status": "ok", "output": "输入输出链路已检查"}]),
+            build_turn("已整理改进建议。", [{"tool": "analyze_tool", "status": "ok", "output": "建议补齐校验"}]),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    service.chat(
+        session["session_id"],
+        "全面阅读后端代码并给出改进建议",
+    )
+
+    assert "app/web/service.py" in factory.created_agents[0].recorded_prompts[1]
+    assert "测试命令：python -m pytest -q" in factory.created_agents[0].recorded_prompts[1]
+    assert factory.calls[0]["test_command"] == "python -m pytest -q"
+
+
 def test_web_service_agentic_mode_requires_workspace(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root="")
@@ -368,6 +433,7 @@ class _SlowAgentFactory:
         force_reindex: bool = False,
         allow_write: bool = False,
         allow_shell: bool = False,
+        test_command: str = "",
         index_dir: object | None = None,
     ) -> _SlowCancellableAgent:
         return self.agent
@@ -399,6 +465,7 @@ class _CancellingAgentFactory:
         force_reindex: bool = False,
         allow_write: bool = False,
         allow_shell: bool = False,
+        test_command: str = "",
         index_dir: object | None = None,
     ) -> _CancellingAgent:
         return _CancellingAgent()

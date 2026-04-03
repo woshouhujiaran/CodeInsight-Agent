@@ -47,6 +47,23 @@ def test_run_command_git_status_ok(tmp_path: Path) -> None:
     assert payload.get("timed_out") is False
 
 
+def test_run_command_allows_configured_test_command(tmp_path: Path) -> None:
+    workspace = _ws(tmp_path)
+    (workspace / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    tool = RunCommandTool(
+        workspace_root=workspace,
+        allowed_commands=[f'"{sys.executable}" -m pytest -q'],
+        default_timeout_seconds=30.0,
+    )
+
+    result = tool.run({"argv": [sys.executable, "-m", "pytest", "-q"], "timeout_seconds": 15})
+
+    assert result["status"] == "ok"
+    payload = json.loads(str(result.get("data") or "{}"))
+    assert payload.get("returncode") == 0
+    assert payload.get("timed_out") is False
+
+
 def test_run_command_command_string_split(tmp_path: Path) -> None:
     workspace = _ws(tmp_path)
     subprocess.run(["git", "init"], cwd=str(workspace), check=False, capture_output=True)

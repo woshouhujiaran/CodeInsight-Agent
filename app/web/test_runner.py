@@ -1,27 +1,22 @@
 from __future__ import annotations
 
-import os
 from pathlib import Path
-import shlex
 import time
 from typing import Any
 
 from app.sandbox.runner import run_workspace_command
+from app.tools.run_command_tool import split_command_string
 from app.utils.logger import get_logger
 
 
 def split_command(command: str) -> list[str]:
-    text = str(command or "").strip()
-    if not text:
-        raise ValueError("test_command 不能为空")
-    parts = shlex.split(text, posix=(os.name != "nt"))
-    normalized: list[str] = []
-    for part in parts:
-        item = str(part)
-        if len(item) >= 2 and item[0] == item[-1] and item[0] in {"'", '"'}:
-            item = item[1:-1]
-        normalized.append(item)
-    return normalized
+    try:
+        return split_command_string(command)
+    except ValueError as exc:
+        message = str(exc)
+        if "non-empty" in message or "parsed argv is empty" in message:
+            raise ValueError("test_command 不能为空") from exc
+        raise ValueError(f"test_command 无法解析：{exc}") from exc
 
 
 def build_test_summary(

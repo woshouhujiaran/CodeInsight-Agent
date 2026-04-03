@@ -428,7 +428,8 @@ class LLMClient:
         if provider == "deepseek":
             url = "https://api.deepseek.com/chat/completions"
         elif provider == "openai":
-            url = "https://api.openai.com/v1/chat/completions"
+            base_url = (os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1").strip().rstrip("/")
+            url = f"{base_url}/chat/completions"
         else:
             self.logger.warning("Unsupported provider=%s, using fallback mode.", provider)
             return None

@@ -28,6 +28,55 @@ class ClarificationPrompt:
     answer: str
 
 
+def _contains_any_keyword(text: str, lowered: str, keywords: tuple[str, ...]) -> bool:
+    for keyword in keywords:
+        if keyword in text or keyword in lowered:
+            return True
+    return False
+
+
+def _looks_like_project_review_request(text: str, lowered: str) -> bool:
+    review_markers = (
+        "review",
+        "代码审查",
+        "审查",
+        "全面阅读",
+        "全面检查",
+        "阅读",
+        "通读",
+        "读一下",
+        "读一遍",
+        "过一遍",
+        "梳理",
+    )
+    scope_markers = (
+        "后端",
+        "前端",
+        "服务",
+        "接口",
+        "模块",
+        "项目",
+        "仓库",
+        "代码库",
+        "调用链",
+        "backend",
+        "frontend",
+    )
+    goal_markers = (
+        "改进",
+        "优化",
+        "问题",
+        "风险",
+        "体验",
+        "薄弱",
+        "建议",
+        "review",
+    )
+    return _contains_any_keyword(text, lowered, review_markers) and _contains_any_keyword(
+        text, lowered, scope_markers
+    ) and (_contains_any_keyword(text, lowered, goal_markers) or "全面" in text or "全量" in text)
+
+
 class TurnModeDecider:
     _PATH_PATTERN = re.compile(r"(?<!\S)(?:[\w.-]+[\\/])+[\w.-]+")
 
@@ -63,6 +112,9 @@ class TurnModeDecider:
         )
         if self._contains_any(text, lowered, forced_qa_keywords):
             return "qa"
+
+        if _looks_like_project_review_request(text, lowered):
+            return "agentic"
 
         forced_agentic_keywords = (
             "agent 模式",
@@ -185,10 +237,7 @@ class TurnModeDecider:
 
     @staticmethod
     def _contains_any(text: str, lowered: str, keywords: tuple[str, ...]) -> bool:
-        for keyword in keywords:
-            if keyword in text or keyword in lowered:
-                return True
-        return False
+        return _contains_any_keyword(text, lowered, keywords)
 
 
 class SafetyGuard:
@@ -609,6 +658,7 @@ class AgenticTaskCoordinator:
             force_reindex=False,
             allow_write=bool(settings.get("allow_write")),
             allow_shell=bool(settings.get("allow_shell")),
+            test_command=str(settings.get("test_command") or ""),
         )
         board = self._build_board(
             agent=agent,
@@ -663,6 +713,7 @@ class AgenticTaskCoordinator:
                 board=board,
                 workspace_root=workspace_root,
                 settings=settings,
+                prior_tool_trace=combined_tool_trace,
             )
             turn = agent.run_agentic(
                 task_prompt,
@@ -727,6 +778,8 @@ class AgenticTaskCoordinator:
         user_content: str,
         history_before_turn: list[dict[str, str]],
     ) -> TaskBoard:
+        if self._looks_like_review_request(user_content):
+            return self._build_review_task_board()
         if self._looks_like_readonly_analysis_request(user_content):
             return TaskBoard.from_dicts(
                 [
@@ -775,6 +828,10 @@ class AgenticTaskCoordinator:
             "列出关键文件",
             "说明你会怎么验证",
             "说明怎么验证",
+            "review",
+            "代码审查",
+            "全面阅读",
+            "全面检查",
         )
         write_or_run_markers = (
             "跑测试",
@@ -794,6 +851,57 @@ class AgenticTaskCoordinator:
             marker in text or marker in lowered for marker in write_or_run_markers
         )
 
+    def _looks_like_review_request(self, user_content: str) -> bool:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        write_or_run_markers = (
+            "跑测试",
+            "运行测试",
+            "pytest",
+            "写入",
+            "应用补丁",
+            "修改文件",
+            "改完",
+            "新增测试",
+            "创建提交",
+            "build",
+            "构建",
+            "打包",
+        )
+        return _looks_like_project_review_request(text, lowered) and not any(
+            marker in text or marker in lowered for marker in write_or_run_markers
+        )
+
+    def _build_review_task_board(self) -> TaskBoard:
+        return TaskBoard.from_dicts(
+            [
+                {
+                    "id": "t1",
+                    "title": "定位关键后端入口",
+                    "description": "先确认后端入口、服务层、状态流转和关键模块边界。",
+                    "depends_on": [],
+                    "status": "pending",
+                    "acceptance": "列出最值得深入阅读的关键文件，并说明各自职责。",
+                },
+                {
+                    "id": "t2",
+                    "title": "审查输入输出与状态流转",
+                    "description": "检查请求输入、响应输出、错误处理、权限边界和步骤衔接是否稳定。",
+                    "depends_on": ["t1"],
+                    "status": "pending",
+                    "acceptance": "指出会直接影响体验的实现问题，并给出原因。",
+                },
+                {
+                    "id": "t3",
+                    "title": "汇总结论与改进建议",
+                    "description": "按影响面整理高优先级问题、改进方向和验证思路。",
+                    "depends_on": ["t2"],
+                    "status": "pending",
+                    "acceptance": "输出可执行、可排序的结论，而不是泛化建议。",
+                },
+            ]
+        )
+
     def _build_task_prompt(
         self,
         *,
@@ -802,20 +910,49 @@ class AgenticTaskCoordinator:
         board: TaskBoard,
         workspace_root: str,
         settings: dict[str, Any],
+        prior_tool_trace: list[dict[str, Any]],
     ) -> str:
         completed = board.completed_summaries()
         completed_text = "\n".join(f"- {line}" for line in completed) if completed else "- 暂无"
+        prior_tool_text = self._format_prior_tool_context(prior_tool_trace)
+        test_command = str(settings.get("test_command") or "").strip()
         return (
             f"原始用户目标：{original_goal}\n\n"
             f"当前任务：{task.title}\n"
             f"任务描述：{task.description}\n"
             f"验收标准：{task.acceptance}\n\n"
             f"已完成任务摘要：\n{completed_text}\n\n"
+            f"前序关键工具结果：\n{prior_tool_text}\n\n"
             f"工作区根目录：{workspace_root}\n"
             f"写权限：{'开启' if settings.get('allow_write') else '关闭'}\n"
             f"命令执行权限：{'开启' if settings.get('allow_shell') else '关闭'}\n\n"
-            "请围绕当前任务行动；若权限不足，输出结构化补丁建议或手动编辑步骤。"
+            f"测试命令：{test_command or '未配置'}\n\n"
+            "请围绕当前任务行动；若前序结果已经确认文件路径、函数名、报错或测试命令，请直接复用，"
+            "不要无意义地重新从零检索。若权限不足，输出结构化补丁建议或手动编辑步骤。"
         )
+
+    def _format_prior_tool_context(self, tool_trace: list[dict[str, Any]], *, max_items: int = 6) -> str:
+        relevant = [
+            item
+            for item in tool_trace
+            if str(item.get("tool") or "").strip() and str(item.get("output") or "").strip()
+        ]
+        if not relevant:
+            return "- 暂无"
+        lines: list[str] = []
+        for item in relevant[-max_items:]:
+            tool = str(item.get("tool") or "unknown_tool")
+            status = str(item.get("status") or "unknown")
+            preview = self._preview_tool_output(item.get("output"))
+            lines.append(f"- {tool} [{status}] {preview}")
+        return "\n".join(lines)
+
+    def _preview_tool_output(self, output: Any, *, max_chars: int = 320) -> str:
+        text = str(output or "")
+        compact = re.sub(r"\s+", " ", text).strip()
+        if len(compact) <= max_chars:
+            return compact
+        return compact[: max_chars - 16] + "... [truncated]"
 
     def _prefer_as_final_answer(self, candidate: str, current: str) -> bool:
         if not current:

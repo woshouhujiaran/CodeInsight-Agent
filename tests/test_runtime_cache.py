@@ -57,6 +57,7 @@ def test_create_agent_reuses_cached_runtime_resources(tmp_path: Path, monkeypatc
         embedding: HashEmbedding,
         *,
         force_reindex: bool = False,
+        snapshot: str | None = None,
     ) -> tuple[_FakeStore, dict[str, str]]:
         vector_store_calls.append((str(codebase_dir), str(index_dir), force_reindex))
         return _FakeStore(), {"status": "built", "index_dir": str(index_dir), "snapshot": "snap"}
@@ -89,6 +90,7 @@ def test_create_agent_invalidates_vector_store_cache_when_snapshot_changes(tmp_p
         embedding: HashEmbedding,
         *,
         force_reindex: bool = False,
+        snapshot: str | None = None,
     ) -> tuple[_FakeStore, dict[str, str]]:
         vector_store_calls.append((str(codebase_dir), str(index_dir), force_reindex))
         return _FakeStore(), {"status": "built", "index_dir": str(index_dir), "snapshot": "snap"}
@@ -102,3 +104,37 @@ def test_create_agent_invalidates_vector_store_cache_when_snapshot_changes(tmp_p
     runtime.create_agent_from_env(str(workspace))
 
     assert len(vector_store_calls) == 2
+
+
+def test_create_agent_computes_snapshot_once_per_build(tmp_path: Path, monkeypatch) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "a.py").write_text("x = 1\n", encoding="utf-8")
+
+    snapshot_calls: list[str] = []
+    loader_calls: list[str | None] = []
+
+    def fake_compute_vector_store_snapshot(codebase_dir: str) -> str:
+        snapshot_calls.append(codebase_dir)
+        return "snap-1"
+
+    def fake_load_or_build_vector_store(
+        codebase_dir: str,
+        index_dir: Path,
+        embedding: HashEmbedding,
+        *,
+        force_reindex: bool = False,
+        snapshot: str | None = None,
+    ) -> tuple[_FakeStore, dict[str, str]]:
+        loader_calls.append(snapshot)
+        return _FakeStore(), {"status": "built", "index_dir": str(index_dir), "snapshot": snapshot or ""}
+
+    runtime.reset_runtime_caches()
+    monkeypatch.setattr(runtime, "create_embedding_backend", lambda: HashEmbedding(dim=16))
+    monkeypatch.setattr(runtime, "compute_vector_store_snapshot", fake_compute_vector_store_snapshot)
+    monkeypatch.setattr(runtime, "load_or_build_vector_store", fake_load_or_build_vector_store)
+
+    runtime.create_agent_from_env(str(workspace))
+
+    assert snapshot_calls == [str(workspace.resolve())]
+    assert loader_calls == ["snap-1"]

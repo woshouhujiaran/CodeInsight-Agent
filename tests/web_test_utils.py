@@ -72,6 +72,7 @@ class FakeAgentFactory:
     turns: list[AgenticTurnResult]
     created_agents: list[FakeAgent] = field(default_factory=list)
     memories: list[dict[str, Any]] = field(default_factory=list)
+    calls: list[dict[str, Any]] = field(default_factory=list)
 
     def __call__(
         self,
@@ -82,10 +83,22 @@ class FakeAgentFactory:
         force_reindex: bool = False,
         allow_write: bool = False,
         allow_shell: bool = False,
+        test_command: str = "",
         index_dir: Any = None,
     ) -> FakeAgent:
         snapshot = memory.to_snapshot() if memory is not None else {"messages": [], "turn_metadata": []}
         self.memories.append(snapshot)
+        self.calls.append(
+            {
+                "workspace_root": workspace_root,
+                "top_k": top_k,
+                "force_reindex": force_reindex,
+                "allow_write": allow_write,
+                "allow_shell": allow_shell,
+                "test_command": test_command,
+                "index_dir": index_dir,
+            }
+        )
         agent = FakeAgent(memory=memory, turns=list(self.turns))
         self.created_agents.append(agent)
         return agent

@@ -63,6 +63,7 @@ class _CancellingAgentFactory:
         force_reindex: bool = False,
         allow_write: bool = False,
         allow_shell: bool = False,
+        test_command: str = "",
         index_dir: object | None = None,
     ) -> _CancellingAgent:
         return _CancellingAgent()
@@ -216,6 +217,19 @@ def test_web_api_post_message_non_stream(tmp_path: Path) -> None:
     assert len(body["session"]["tasks"]) == 3
 
 
+def test_web_api_rejects_blank_message_payload(tmp_path: Path) -> None:
+    client, _store = _client(tmp_path)
+    created = client.post("/sessions", json={"settings": {}})
+    session_id = created.json()["session_id"]
+
+    response = client.post(
+        f"/sessions/{session_id}/messages",
+        json={"content": "   "},
+    )
+
+    assert response.status_code == 422
+
+
 def test_web_api_qa_message_works_without_workspace(tmp_path: Path) -> None:
     fake_llm = FakeLLM(answer="这是 QA 回答。示例代码只会以内联片段给出，不会写入本地文件。")
     agent_factory = FakeAgentFactory(turns=[build_turn("不应被调用")])
@@ -324,6 +338,26 @@ def test_web_api_workspace_write_requires_allow_write(tmp_path: Path) -> None:
 
     assert response.status_code == 403
     assert "allow_write" in response.json()["detail"]
+
+
+def test_web_api_workspace_write_rejects_invalid_expected_hash(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "app.py").write_text("print('old')\n", encoding="utf-8")
+
+    client, _store = _client(tmp_path)
+    created = client.post(
+        "/sessions",
+        json={"workspace_root": str(workspace), "settings": {"allow_write": True}},
+    )
+    session_id = created.json()["session_id"]
+
+    response = client.put(
+        f"/sessions/{session_id}/workspace/file",
+        json={"path": "app.py", "content": "print('new')\n", "expected_content_hash": "not-a-sha"},
+    )
+
+    assert response.status_code == 422
 
 
 def test_web_api_sse_stream_emits_task_board_and_final(tmp_path: Path) -> None:

@@ -85,13 +85,13 @@
                   </label>
                   <div class="setting-pills">
                     <label class="toggle-chip"><input id="allowWriteInput" type="checkbox"><span>允许写盘</span></label>
-                    <label class="toggle-chip"><input id="allowShellInput" type="checkbox"><span>允许命令</span></label>
+                    <label class="toggle-chip"><input id="allowShellInput" type="checkbox"><span>允许受控命令</span></label>
                     <label class="toggle-chip"><input id="autoRunTestsInput" type="checkbox"><span>自动测试</span></label>
                   </div>
                   <div class="settings-inline">
                     <label class="field">
                       <span class="field-label">测试命令</span>
-                      <input id="testCommandInput" type="text" placeholder="例如：python -m pytest -q">
+                      <input id="testCommandInput" type="text" placeholder="例如：python -m pytest -q；Agent 和“运行测试”会复用这条命令">
                     </label>
                     <label class="field">
                       <span class="field-label">轮次</span>

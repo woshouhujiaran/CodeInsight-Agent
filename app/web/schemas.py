@@ -9,12 +9,16 @@ from app.contracts import (
     TestSummaryModel,
     TurnMetadataModel,
 )
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, validator
 
 
 class SessionCreateModel(BaseModel):
     workspace_root: str = ""
     settings: SessionSettingsModel = Field(default_factory=SessionSettingsModel)
+
+    @validator("workspace_root", pre=True, always=True)
+    def _normalize_workspace_root(cls, value: Any) -> str:
+        return str(value or "").strip()
 
 
 class SessionUpdateModel(BaseModel):
@@ -24,9 +28,22 @@ class SessionUpdateModel(BaseModel):
     pinned: bool | None = None
     archived: bool | None = None
 
+    @validator("workspace_root", pre=True, always=True)
+    def _normalize_optional_workspace_root(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        return str(value).strip()
+
 
 class MessageCreateModel(BaseModel):
     content: str = Field(..., min_length=1)
+
+    @validator("content", pre=True, always=True)
+    def _normalize_content(cls, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("content cannot be empty")
+        return text
 
 
 class WorkspaceTreeEntryModel(BaseModel):
@@ -57,6 +74,24 @@ class WorkspaceFileUpdateModel(BaseModel):
     path: str = Field(..., min_length=1)
     content: str
     expected_content_hash: str | None = None
+
+    @validator("path", pre=True, always=True)
+    def _normalize_path(cls, value: Any) -> str:
+        text = str(value or "").strip()
+        if not text:
+            raise ValueError("path cannot be empty")
+        return text
+
+    @validator("expected_content_hash", pre=True, always=True)
+    def _normalize_expected_hash(cls, value: Any) -> str | None:
+        if value is None:
+            return None
+        text = str(value).strip().lower()
+        if not text:
+            return None
+        if len(text) != 64 or any(ch not in "0123456789abcdef" for ch in text):
+            raise ValueError("expected_content_hash must be a 64-char hex sha256")
+        return text
 
 
 class WorkspaceFileWriteResponseModel(BaseModel):

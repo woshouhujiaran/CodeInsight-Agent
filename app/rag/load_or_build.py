@@ -42,6 +42,7 @@ def load_or_build_vector_store(
     embedding: EmbeddingBackend,
     *,
     force_reindex: bool = False,
+    snapshot: str | None = None,
     chunk_size: int = 500,
     chunk_overlap: int = 50,
     include_suffixes: tuple[str, ...] = DEFAULT_INCLUDE_SUFFIXES,
@@ -52,7 +53,7 @@ def load_or_build_vector_store(
     """
     root = Path(codebase_dir).resolve()
     index_dir = Path(index_dir)
-    snapshot = compute_codebase_snapshot(
+    snapshot = snapshot or compute_codebase_snapshot(
         str(root),
         include_suffixes=include_suffixes,
         excluded_dirs=frozenset(excluded_dirs),

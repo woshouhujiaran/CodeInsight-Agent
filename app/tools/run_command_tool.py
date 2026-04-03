@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 import shlex
 from pathlib import Path
@@ -10,7 +11,7 @@ from app.sandbox.runner import run_workspace_command
 from app.tools.base_tool import BaseTool, make_tool_result
 from app.utils.logger import get_logger
 
-ALLOWLIST_PREFIXES: tuple[tuple[str, ...], ...] = (
+BASE_ALLOWLIST_PREFIXES: tuple[tuple[str, ...], ...] = (
     ("git", "status"),
     ("git", "diff"),
 )
@@ -30,9 +31,32 @@ def normalize_argv_for_allowlist(argv: list[str]) -> list[str]:
     return list(argv)
 
 
-def argv_matches_allowlist(argv: list[str]) -> bool:
+def split_command_string(command: str) -> list[str]:
+    text = str(command or "").strip()
+    if not text:
+        raise ValueError("command must be a non-empty string")
+    parts = shlex.split(text, posix=(os.name != "nt"))
+    normalized: list[str] = []
+    for part in parts:
+        item = str(part)
+        if len(item) >= 2 and item[0] == item[-1] and item[0] in {"'", '"'}:
+            item = item[1:-1]
+        normalized.append(item)
+    if not normalized:
+        raise ValueError("parsed argv is empty")
+    return normalized
+
+
+def argv_matches_allowlist(
+    argv: list[str],
+    *,
+    prefix_allowlist: tuple[tuple[str, ...], ...] = BASE_ALLOWLIST_PREFIXES,
+    exact_allowlist: set[tuple[str, ...]] | None = None,
+) -> bool:
     normalized = tuple(normalize_argv_for_allowlist(argv))
-    return any(len(normalized) >= len(prefix) and normalized[: len(prefix)] == prefix for prefix in ALLOWLIST_PREFIXES)
+    if exact_allowlist and normalized in exact_allowlist:
+        return True
+    return any(len(normalized) >= len(prefix) and normalized[: len(prefix)] == prefix for prefix in prefix_allowlist)
 
 
 def argv_has_shell_metacharacters(argv: list[str]) -> bool:
@@ -80,14 +104,18 @@ class RunCommandTool(BaseTool):
         self,
         workspace_root: str | Path,
         *,
+        allowed_commands: list[str] | None = None,
         default_timeout_seconds: float = 120.0,
         max_output_chars: int = 8000,
         logger_name: str = "codeinsight.tools.run_command",
     ) -> None:
         self._root = Path(workspace_root).resolve()
+        self.logger = get_logger(logger_name)
+        self._prefix_allowlist = BASE_ALLOWLIST_PREFIXES
+        self._exact_allowlist = self._build_exact_allowlist(allowed_commands or [])
         self._default_timeout = float(default_timeout_seconds)
         self._max_output_chars = max_output_chars
-        self.logger = get_logger(logger_name)
+        self.description = self._build_description()
 
     def run(self, input: dict[str, Any] | str) -> dict[str, Any]:
         args = input if isinstance(input, dict) else {}
@@ -98,9 +126,8 @@ class RunCommandTool(BaseTool):
         if args.get("argv") is not None:
             argv = list(args["argv"])
         else:
-            command = str(args["command"]).strip()
             try:
-                argv = shlex.split(command, posix=True)
+                argv = split_command_string(str(args["command"]))
             except ValueError as exc:
                 return make_tool_result(status="error", data=None, error=f"failed to parse command: {exc}", meta={})
 
@@ -115,12 +142,19 @@ class RunCommandTool(BaseTool):
                 meta={},
             )
 
-        if not argv_matches_allowlist(argv):
+        if not argv_matches_allowlist(
+            argv,
+            prefix_allowlist=self._prefix_allowlist,
+            exact_allowlist=self._exact_allowlist,
+        ):
             return make_tool_result(
                 status="error",
                 data=None,
-                error="command is not allowlisted; only `git status` and `git diff` are permitted",
-                meta={"allowlist_rejected": True},
+                error=self._allowlist_rejection_message(),
+                meta={
+                    "allowlist_rejected": True,
+                    "configured_command_count": len(self._exact_allowlist),
+                },
             )
 
         timeout_seconds = float(args.get("timeout_seconds") or self._default_timeout)
@@ -163,4 +197,40 @@ class RunCommandTool(BaseTool):
             data=text,
             error="",
             meta={"returncode": result["returncode"], "argv": argv, "timed_out": False},
+        )
+
+    def _build_exact_allowlist(self, commands: list[str]) -> set[tuple[str, ...]]:
+        exact: set[tuple[str, ...]] = set()
+        for command in commands:
+            text = str(command or "").strip()
+            if not text:
+                continue
+            try:
+                argv = split_command_string(text)
+            except ValueError as exc:
+                self.logger.warning("Ignoring invalid allowed command `%s`: %s", text, exc)
+                continue
+            if argv_has_shell_metacharacters(argv):
+                self.logger.warning("Ignoring allowed command with shell metacharacters: %s", text)
+                continue
+            exact.add(tuple(normalize_argv_for_allowlist(argv)))
+        return exact
+
+    def _build_description(self) -> str:
+        if not self._exact_allowlist:
+            return (
+                "Execute a low-risk allowlisted command without shell expansion inside the workspace. "
+                "Allowed prefixes: git status, git diff."
+            )
+        return (
+            "Execute a low-risk allowlisted command without shell expansion inside the workspace. "
+            "Allowed prefixes: git status, git diff; exact matches also include the session's configured test command."
+        )
+
+    def _allowlist_rejection_message(self) -> str:
+        if not self._exact_allowlist:
+            return "command is not allowlisted; only `git status` and `git diff` are permitted"
+        return (
+            "command is not allowlisted; permitted commands are `git status`, `git diff`, "
+            "and the session's configured test command"
         )

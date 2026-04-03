@@ -137,6 +137,7 @@ def _get_cached_vector_store(
         resolved_index_dir,
         embedding,
         force_reindex=force_reindex,
+        snapshot=snapshot,
     )
     cache_meta = dict(rag_meta)
     cache_meta["snapshot"] = snapshot
@@ -158,6 +159,7 @@ def create_agent_from_env(
     force_reindex: bool = False,
     allow_write: bool = False,
     allow_shell: bool = False,
+    test_command: str = "",
     index_dir: Path | None = None,
 ) -> CodeAgent:
     logger = get_logger("codeinsight.runtime")
@@ -190,7 +192,13 @@ def create_agent_from_env(
         logger.info("allow_write=True: registered apply_patch_tool and write_file_tool")
 
     if allow_shell:
-        registry.register(RunCommandTool(workspace_root=resolved_root))
+        allowed_commands = [test_command] if str(test_command or "").strip() else []
+        registry.register(
+            RunCommandTool(
+                workspace_root=resolved_root,
+                allowed_commands=allowed_commands,
+            )
+        )
         logger.info("allow_shell=True: registered run_command_tool")
 
     planner = Planner(llm=llm, write_tools_enabled=allow_write)
