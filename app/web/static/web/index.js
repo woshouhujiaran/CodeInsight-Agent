@@ -1,0 +1,2652 @@
+    const LAYOUT_STORAGE_KEY = "codeinsight.web.layout.v1";
+    const SIDEBAR_WIDTH_STORAGE_KEY = "codeinsight.web.sidebarWidth.v1";
+    const SESSION_NAV_WIDTH_STORAGE_KEY = "codeinsight.web.sessionNavWidth.v1";
+    const ASSISTANT_CHAT_WIDTH_STORAGE_KEY = "codeinsight.web.assistantChatWidth.v1";
+    const ACTIVE_SESSION_STORAGE_KEY = "codeinsight.web.activeSessionId.v1";
+    const DEFAULT_MAX_TURNS = 8;
+    const MIN_MAX_TURNS = 1;
+    const MAX_MAX_TURNS = 20;
+    const DESKTOP_LAYOUT_MEDIA_QUERY = "(max-width: 1180px)";
+    const MIN_SIDEBAR_WIDTH = 256;
+    const MAX_SIDEBAR_WIDTH = 420;
+    const DEFAULT_SIDEBAR_WIDTH = 280;
+    const MIN_SESSION_NAV_WIDTH = 236;
+    const MAX_SESSION_NAV_WIDTH = 520;
+    const DEFAULT_SESSION_NAV_WIDTH = 248;
+    const MIN_ASSISTANT_CHAT_WIDTH = 320;
+    const MAX_ASSISTANT_CHAT_WIDTH = 760;
+    const DEFAULT_ASSISTANT_CHAT_WIDTH = 336;
+    const MIN_EDITOR_WIDTH = 6;
+    const ASSISTANT_PANEL_CHROME = 40;
+    const CHANGE_SUMMARY_DEBOUNCE_MS = 560;
+    const WORKSPACE_AUTO_SYNC_MS = 2500;
+    const TREE_ROOT_PATH = ".";
+    const FILE_ICON_TYPES = {
+      ".py": "python",
+      ".js": "javascript",
+      ".jsx": "javascript",
+      ".ts": "typescript",
+      ".tsx": "typescript",
+      ".json": "data",
+      ".md": "markdown",
+      ".html": "html",
+      ".css": "style",
+      ".scss": "style",
+      ".less": "style",
+      ".yml": "config",
+      ".yaml": "config",
+      ".toml": "config",
+      ".ini": "config",
+      ".txt": "text",
+      default: "text"
+    };
+
+    (function bootstrapPanels() {
+      const toolbarActions = document.querySelector(".toolbar-actions");
+      const moreMenu = document.getElementById("toolbarMoreMenu");
+      const reloadBtn = document.getElementById("reloadFileBtn");
+      const saveBtn = document.getElementById("saveFileBtn");
+      if (toolbarActions && moreMenu && reloadBtn && saveBtn) {
+        reloadBtn.textContent = "重载";
+        saveBtn.textContent = "保存";
+        toolbarActions.insertBefore(reloadBtn, moreMenu);
+        toolbarActions.insertBefore(saveBtn, moreMenu);
+      }
+
+      const leftToggleBtn = document.getElementById("toggleLeftSidebarBtn");
+      const rightToggleBtn = document.getElementById("toggleRightSidebarBtn");
+      if (leftToggleBtn) leftToggleBtn.textContent = "文件";
+      if (rightToggleBtn) rightToggleBtn.textContent = "会话";
+
+      const refreshTreeBtn = document.getElementById("refreshTreeBtn");
+      if (refreshTreeBtn) refreshTreeBtn.textContent = "刷新";
+
+      document.querySelectorAll(".panel-header").forEach(header => header.remove());
+
+      const shell = document.querySelector(".assistant-chat-shell");
+      const rail = document.getElementById("sessionRail");
+      const assistantMain = shell?.querySelector(".assistant-main");
+      const listCard = assistantMain?.querySelector(".assistant-session-card");
+      const chatCard = assistantMain?.querySelector(".chat-card");
+      const sessionList = document.getElementById("sessionList");
+      const newSessionBtn = document.getElementById("newSessionBtn");
+      const deleteSessionBtn = document.getElementById("deleteSessionBtn");
+      const currentSessionRail = document.getElementById("currentSessionRail");
+      if (!shell || !rail || !assistantMain || !chatCard || !sessionList || !newSessionBtn || !deleteSessionBtn || !currentSessionRail) {
+        return;
+      }
+
+      shell.id = "assistantChatShell";
+      rail.className = "session-nav";
+      assistantMain.innerHTML = "";
+      assistantMain.appendChild(chatCard);
+      if (listCard) listCard.remove();
+
+      newSessionBtn.textContent = "新建";
+      newSessionBtn.className = "secondary session-nav-btn";
+      deleteSessionBtn.textContent = "删除";
+      deleteSessionBtn.className = "danger session-nav-btn";
+      deleteSessionBtn.hidden = true;
+      currentSessionRail.className = "session-current empty";
+
+      const searchInput = document.createElement("input");
+      searchInput.id = "sessionSearchInput";
+      searchInput.type = "text";
+      searchInput.placeholder = "搜索会话";
+
+      const sessionNavTools = document.createElement("div");
+      sessionNavTools.className = "session-nav-tools";
+      sessionNavTools.append(newSessionBtn, deleteSessionBtn);
+
+      const sessionNavHead = document.createElement("div");
+      sessionNavHead.className = "session-nav-head";
+      sessionNavHead.append(sessionNavTools, searchInput, currentSessionRail);
+
+      const activeGroup = document.createElement("div");
+      activeGroup.className = "session-group";
+      activeGroup.innerHTML = `
+        <div class="session-group-head">
+          <div class="session-group-title">未归档</div>
+          <div class="session-group-note">点击进入会话；归档或恢复直接操作，其余动作请使用更多菜单。</div>
+        </div>
+      `;
+      activeGroup.appendChild(sessionList);
+
+      const archivedGroup = document.createElement("div");
+      archivedGroup.className = "session-group";
+      const toggleArchivedBtn = document.createElement("button");
+      toggleArchivedBtn.id = "toggleArchivedBtn";
+      toggleArchivedBtn.className = "secondary session-archive-toggle";
+      toggleArchivedBtn.type = "button";
+      toggleArchivedBtn.setAttribute("aria-expanded", "false");
+      toggleArchivedBtn.textContent = "已归档 (0)";
+      const archivedSessionList = document.createElement("div");
+      archivedSessionList.id = "archivedSessionList";
+      archivedSessionList.className = "session-list";
+      archivedSessionList.hidden = true;
+      archivedGroup.append(toggleArchivedBtn, archivedSessionList);
+
+      const sessionNavScroll = document.createElement("div");
+      sessionNavScroll.className = "session-nav-scroll";
+      sessionNavScroll.append(activeGroup, archivedGroup);
+
+      rail.innerHTML = "";
+      rail.append(sessionNavHead, sessionNavScroll);
+
+      const resizeHandle = document.createElement("div");
+      resizeHandle.id = "assistantResizeHandle";
+      resizeHandle.className = "assistant-resize-handle";
+      resizeHandle.setAttribute("role", "separator");
+      resizeHandle.setAttribute("aria-orientation", "vertical");
+      resizeHandle.setAttribute("aria-label", "调整会话导航宽度");
+      resizeHandle.tabIndex = 0;
+
+      if (!shell.querySelector("#assistantResizeHandle")) {
+        shell.insertBefore(resizeHandle, assistantMain);
+      }
+    })();
+    const state = {
+      sessions: [],
+      currentSession: null,
+      streamController: null,
+      streamStopRequested: false,
+      streamTerminalStatus: "",
+      pendingAssistantEl: null,
+      pendingAssistantText: "",
+      workspaceEntries: [],
+      workspaceEntryIndex: new Map(),
+      workspaceSnapshotKey: "",
+      workspaceNote: "",
+      expanded: {},
+      openFiles: [],
+      activeFilePath: "",
+      workspaceTreeModel: null,
+      workspaceNodeIndex: new Map(),
+      pendingPickedFilePath: "",
+      drawerPanel: "settings",
+      drawerOpen: false,
+      sessionSearchQuery: "",
+      archivedExpanded: false,
+      sidebarWidth: DEFAULT_SIDEBAR_WIDTH,
+      sessionNavWidth: DEFAULT_SESSION_NAV_WIDTH,
+      assistantChatWidth: DEFAULT_ASSISTANT_CHAT_WIDTH,
+      leftCollapsed: false,
+      rightCollapsed: false
+    };
+    let fileRevisionCounter = 0;
+    let changeSummaryTimer = null;
+    let workspaceSyncTimer = null;
+    let workspaceSyncInFlight = false;
+
+    const $ = id => document.getElementById(id);
+    const els = {
+      layout: $("appLayout"),
+      sidebarPanel: $("sidebarPanel"),
+      sidebarResizeHandle: $("sidebarResizeHandle"),
+      assistantPanel: $("assistantPanel"),
+      assistantPanelResizeHandle: $("assistantPanelResizeHandle"),
+      assistantChatShell: $("assistantChatShell"),
+      assistantResizeHandle: $("assistantResizeHandle"),
+      toggleLeftSidebarBtn: $("toggleLeftSidebarBtn"),
+      toggleRightSidebarBtn: $("toggleRightSidebarBtn"),
+      toolbarMoreMenu: $("toolbarMoreMenu"),
+      currentSessionRail: $("currentSessionRail"),
+      sessionSearchInput: $("sessionSearchInput"),
+      sessionList: $("sessionList"),
+      archivedSessionList: $("archivedSessionList"),
+      toggleArchivedBtn: $("toggleArchivedBtn"),
+      workspaceMeta: $("workspaceMeta"),
+      workspaceTree: $("workspaceTree"),
+      fileTabs: $("fileTabs"),
+      contextDrawer: $("contextDrawer"),
+      contextDrawerTitle: $("contextDrawerTitle"),
+      contextDrawerSubtitle: $("contextDrawerSubtitle"),
+      closeDrawerBtn: $("closeDrawerBtn"),
+      drawerSettingsPanel: $("drawerSettingsPanel"),
+      drawerTasksPanel: $("drawerTasksPanel"),
+      drawerTestsPanel: $("drawerTestsPanel"),
+      drawerEvalPanel: $("drawerEvalPanel"),
+      editorTitle: $("editorTitle"),
+      editorMeta: $("editorMeta"),
+      editorStatus: $("editorStatus"),
+      editorEmpty: $("editorEmpty"),
+      editorTextarea: $("editorTextarea"),
+      reloadFileBtn: $("reloadFileBtn"),
+      saveFileBtn: $("saveFileBtn"),
+      changeSummary: $("changeSummary"),
+      changeSummaryMeta: $("changeSummaryMeta"),
+      changeSummaryList: $("changeSummaryList"),
+      messages: $("messages"),
+      taskBoard: $("taskBoard"),
+      testSummary: $("testSummary"),
+      evalSummary: $("evalSummary"),
+      chatMeta: $("chatMeta"),
+      statusBar: $("statusBar"),
+      sendBtn: $("sendBtn"),
+      stopBtn: $("stopBtn"),
+      runTestsBtn: $("runTestsBtn"),
+      saveSettingsBtn: $("saveSettingsBtn"),
+      newSessionBtn: $("newSessionBtn"),
+      deleteSessionBtn: $("deleteSessionBtn"),
+      openFolderBtn: $("openFolderBtn"),
+      openFileBtn: $("openFileBtn"),
+      messageInput: $("messageInput"),
+      workspaceInput: $("workspaceInput"),
+      allowWriteInput: $("allowWriteInput"),
+      allowShellInput: $("allowShellInput"),
+      autoRunTestsInput: $("autoRunTestsInput"),
+      testCommandInput: $("testCommandInput"),
+      maxTurnsInput: $("maxTurnsInput")
+    };
+
+    const drawerButtons = [...document.querySelectorAll("[data-drawer-target]")];
+    const sendBtnEl = els.sendBtn;
+    const runTestsBtnEl = els.runTestsBtn;
+    const saveSettingsBtnEl = els.saveSettingsBtn;
+    const drawerMeta = {
+      settings: { title: "会话设置", subtitle: "绑定工作区、权限和测试参数。" },
+      tasks: { title: "任务看板", subtitle: "查看当前会话拆解出的任务状态与摘要。" },
+      tests: { title: "最近测试", subtitle: "保留最近一次测试结果，并支持立即重跑。" },
+      eval: { title: "最近评测", subtitle: "查看最新评测摘要，不打断当前对话。" }
+    };
+
+
+    function setStatus(text) {
+      els.statusBar.textContent = text || "";
+    }
+
+    function setStreamTerminalStatus(text) {
+      state.streamTerminalStatus = text || "";
+      if (state.streamTerminalStatus) setStatus(state.streamTerminalStatus);
+    }
+
+    function escapeHtml(text) {
+      return String(text || "")
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+    }
+
+    function formatWorkspaceLabel(value) {
+      return value || "问答模式 / 未配置工作区";
+    }
+
+    function formatTimestamp(value) {
+      if (!value) return "未知时间";
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return String(value);
+      return date.toLocaleString("zh-CN", {
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit"
+      });
+    }
+    function normPath(value) {
+      return String(value || "").replace(/\\/g, "/").replace(/^\.\/+/, "");
+    }
+
+    function baseName(value) {
+      const parts = normPath(value).split("/");
+      return parts[parts.length - 1] || value;
+    }
+
+    function splitFileName(value) {
+      const name = String(value || "");
+      const dotIndex = name.lastIndexOf(".");
+      if (dotIndex <= 0) return { base: name, ext: "" };
+      return {
+        base: name.slice(0, dotIndex),
+        ext: name.slice(dotIndex)
+      };
+    }
+
+    function fileIconType(name) {
+      const lowerName = String(name || "").toLowerCase();
+      const dotIndex = lowerName.lastIndexOf(".");
+      const extension = dotIndex >= 0 ? lowerName.slice(dotIndex) : "";
+      return FILE_ICON_TYPES[extension] || FILE_ICON_TYPES.default;
+    }
+
+    function formatWorkspaceNote(note) {
+      const value = String(note || "").replace(/\s+/g, " ").trim();
+      if (!value) return "";
+      if (value.includes("truncated")) return "条目过多，当前列表已截断";
+      return value;
+    }
+
+    function workspaceEntryKey(entry) {
+      return [
+        entry.is_dir ? "d" : "f",
+        normPath(entry.path),
+        Number.isFinite(Number(entry.modified_ns)) ? Number(entry.modified_ns) : "",
+        Number.isFinite(Number(entry.size_bytes)) ? Number(entry.size_bytes) : ""
+      ].join(":");
+    }
+
+    function workspaceSnapshotKey(entries) {
+      return entries.map(workspaceEntryKey).join("|");
+    }
+
+    function getWorkspaceEntry(path) {
+      return state.workspaceEntryIndex.get(normPath(path)) || null;
+    }
+
+    function escapeSelector(value) {
+      if (window.CSS && typeof window.CSS.escape === "function") return window.CSS.escape(String(value || ""));
+      return String(value || "").replace(/[^a-zA-Z0-9_-]/g, "\\$&");
+    }
+
+    function readActiveSessionId() {
+      try {
+        return localStorage.getItem(ACTIVE_SESSION_STORAGE_KEY) || "";
+      } catch {
+        return "";
+      }
+    }
+
+    function persistActiveSessionId(sessionId) {
+      try {
+        if (sessionId) localStorage.setItem(ACTIVE_SESSION_STORAGE_KEY, sessionId);
+        else localStorage.removeItem(ACTIVE_SESSION_STORAGE_KEY);
+      } catch {
+      }
+    }
+
+    function nextFileRevision() {
+      fileRevisionCounter += 1;
+      return fileRevisionCounter;
+    }
+
+    function hydrateOpenFile(file) {
+      const baseRevision = Number(file?.originalRevision || file?.contentRevision || 0) || nextFileRevision();
+      return {
+        path: normPath(file?.path),
+        name: file?.name || baseName(file?.path),
+        content: String(file?.content || ""),
+        originalContent: String(file?.originalContent ?? file?.content ?? ""),
+        contentHash: String(file?.contentHash || ""),
+        dirty: !!file?.dirty,
+        truncated: !!file?.truncated,
+        modifiedNs: Number.isFinite(Number(file?.modifiedNs)) ? Number(file.modifiedNs) : null,
+        sizeBytes: Number.isFinite(Number(file?.sizeBytes)) ? Number(file.sizeBytes) : null,
+        externalChanged: !!file?.externalChanged,
+        missingOnDisk: !!file?.missingOnDisk,
+        originalRevision: Number(file?.originalRevision) || baseRevision,
+        contentRevision: Number(file?.contentRevision) || baseRevision,
+        diffCacheKey: String(file?.diffCacheKey || ""),
+        diffCache: file?.diffCache || null
+      };
+    }
+
+    function normalizeMaxTurns(value) {
+      const parsed = Number(value);
+      if (!Number.isInteger(parsed) || parsed < MIN_MAX_TURNS || parsed > MAX_MAX_TURNS) {
+        return DEFAULT_MAX_TURNS;
+      }
+      return parsed;
+    }
+
+    function readStoredWidth(key, fallback) {
+      try {
+        const parsed = Number(localStorage.getItem(key));
+        return Number.isFinite(parsed) ? Math.round(parsed) : fallback;
+      } catch {
+        return fallback;
+      }
+    }
+
+    function pxNumber(value) {
+      const parsed = Number.parseFloat(value);
+      return Number.isFinite(parsed) ? parsed : 0;
+    }
+
+    function isDesktopResizableLayout() {
+      return !window.matchMedia(DESKTOP_LAYOUT_MEDIA_QUERY).matches;
+    }
+
+    function layoutContentWidth() {
+      const styles = window.getComputedStyle(els.layout);
+      const paddingX = pxNumber(styles.paddingLeft) + pxNumber(styles.paddingRight);
+      return Math.max(0, els.layout.clientWidth - paddingX);
+    }
+
+    function layoutGapPx() {
+      const styles = window.getComputedStyle(els.layout);
+      const gap = pxNumber(styles.columnGap || styles.gap);
+      return gap * (Number(!state.leftCollapsed) + Number(!state.rightCollapsed));
+    }
+
+    function assistantTotalWidth(navWidth = state.sessionNavWidth, chatWidth = state.assistantChatWidth) {
+      return navWidth + chatWidth + ASSISTANT_PANEL_CHROME;
+    }
+
+    function maxSidebarWidth() {
+      const assistantWidth = state.rightCollapsed ? 0 : assistantTotalWidth();
+      const available = layoutContentWidth() - layoutGapPx() - assistantWidth - MIN_EDITOR_WIDTH;
+      return Math.max(MIN_SIDEBAR_WIDTH, Math.min(MAX_SIDEBAR_WIDTH, Math.floor(available)));
+    }
+
+    function maxSessionNavWidth() {
+      const sidebarWidth = state.leftCollapsed ? 0 : state.sidebarWidth;
+      const available = layoutContentWidth()
+        - layoutGapPx()
+        - sidebarWidth
+        - state.assistantChatWidth
+        - ASSISTANT_PANEL_CHROME
+        - MIN_EDITOR_WIDTH;
+      return Math.max(MIN_SESSION_NAV_WIDTH, Math.min(MAX_SESSION_NAV_WIDTH, Math.floor(available)));
+    }
+
+    function maxAssistantChatWidth() {
+      const sidebarWidth = state.leftCollapsed ? 0 : state.sidebarWidth;
+      const available = layoutContentWidth()
+        - layoutGapPx()
+        - sidebarWidth
+        - state.sessionNavWidth
+        - ASSISTANT_PANEL_CHROME
+        - MIN_EDITOR_WIDTH;
+      return Math.max(MIN_ASSISTANT_CHAT_WIDTH, Math.min(MAX_ASSISTANT_CHAT_WIDTH, Math.floor(available)));
+    }
+
+    function clampSidebarWidth(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return DEFAULT_SIDEBAR_WIDTH;
+      return Math.max(MIN_SIDEBAR_WIDTH, Math.min(maxSidebarWidth(), Math.round(parsed)));
+    }
+
+    function clampSessionNavWidth(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return DEFAULT_SESSION_NAV_WIDTH;
+      return Math.max(MIN_SESSION_NAV_WIDTH, Math.min(maxSessionNavWidth(), Math.round(parsed)));
+    }
+
+    function clampAssistantChatWidth(value) {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return DEFAULT_ASSISTANT_CHAT_WIDTH;
+      return Math.max(MIN_ASSISTANT_CHAT_WIDTH, Math.min(maxAssistantChatWidth(), Math.round(parsed)));
+    }
+
+    function normalizePanelWidths() {
+      for (let index = 0; index < 2; index += 1) {
+        state.sidebarWidth = clampSidebarWidth(state.sidebarWidth);
+        state.sessionNavWidth = clampSessionNavWidth(state.sessionNavWidth);
+        state.assistantChatWidth = clampAssistantChatWidth(state.assistantChatWidth);
+      }
+    }
+
+    function readLayoutState() {
+      try {
+        const raw = localStorage.getItem(LAYOUT_STORAGE_KEY);
+        if (raw) {
+          const saved = JSON.parse(raw);
+          state.leftCollapsed = !!saved.leftCollapsed;
+          state.rightCollapsed = !!saved.rightCollapsed;
+        }
+      } catch {
+        state.leftCollapsed = false;
+        state.rightCollapsed = false;
+      }
+      state.sidebarWidth = readStoredWidth(SIDEBAR_WIDTH_STORAGE_KEY, DEFAULT_SIDEBAR_WIDTH);
+      state.sessionNavWidth = readStoredWidth(SESSION_NAV_WIDTH_STORAGE_KEY, DEFAULT_SESSION_NAV_WIDTH);
+      state.assistantChatWidth = readStoredWidth(ASSISTANT_CHAT_WIDTH_STORAGE_KEY, DEFAULT_ASSISTANT_CHAT_WIDTH);
+    }
+
+    function persistLayoutState() {
+      try {
+        localStorage.setItem(
+          LAYOUT_STORAGE_KEY,
+          JSON.stringify({
+            leftCollapsed: !!state.leftCollapsed,
+            rightCollapsed: !!state.rightCollapsed
+          })
+        );
+      } catch {
+      }
+      try {
+        localStorage.setItem(SIDEBAR_WIDTH_STORAGE_KEY, String(clampSidebarWidth(state.sidebarWidth)));
+      } catch {
+      }
+      try {
+        localStorage.setItem(SESSION_NAV_WIDTH_STORAGE_KEY, String(clampSessionNavWidth(state.sessionNavWidth)));
+      } catch {
+      }
+      try {
+        localStorage.setItem(ASSISTANT_CHAT_WIDTH_STORAGE_KEY, String(clampAssistantChatWidth(state.assistantChatWidth)));
+      } catch {
+      }
+    }
+
+    function applyLayoutState() {
+      const bothCollapsed = state.leftCollapsed && state.rightCollapsed;
+      normalizePanelWidths();
+      els.layout.style.setProperty("--sidebar-width", `${state.sidebarWidth}px`);
+      els.layout.style.setProperty("--assistant-nav-width", `${state.sessionNavWidth}px`);
+      els.layout.style.setProperty("--assistant-chat-width", `${state.assistantChatWidth}px`);
+      els.layout.style.setProperty("--assistant-width", `${assistantTotalWidth()}px`);
+      els.layout.classList.toggle("left-collapsed", state.leftCollapsed);
+      els.layout.classList.toggle("right-collapsed", state.rightCollapsed);
+      els.layout.classList.toggle("both-collapsed", bothCollapsed);
+      els.layout.dataset.layoutState = bothCollapsed
+        ? "both-collapsed"
+        : state.leftCollapsed
+          ? "left-collapsed"
+          : state.rightCollapsed
+            ? "right-collapsed"
+            : "default";
+
+      els.sidebarPanel.hidden = !!state.leftCollapsed;
+      els.assistantPanel.hidden = !!state.rightCollapsed;
+      els.sidebarPanel.setAttribute("aria-hidden", String(!!state.leftCollapsed));
+      els.assistantPanel.setAttribute("aria-hidden", String(!!state.rightCollapsed));
+
+      els.toggleLeftSidebarBtn.setAttribute("aria-expanded", String(!state.leftCollapsed));
+      els.toggleLeftSidebarBtn.setAttribute(
+        "aria-label",
+        state.leftCollapsed ? "展开左侧工作区侧栏" : "折叠左侧工作区侧栏"
+      );
+      els.toggleLeftSidebarBtn.classList.toggle("active", !state.leftCollapsed);
+
+      els.toggleRightSidebarBtn.setAttribute("aria-expanded", String(!state.rightCollapsed));
+      els.toggleRightSidebarBtn.setAttribute(
+        "aria-label",
+        state.rightCollapsed ? "展开右侧会话与对话侧栏" : "折叠右侧会话与对话侧栏"
+      );
+      els.toggleRightSidebarBtn.classList.toggle("active", !state.rightCollapsed);
+    }
+
+    function toggleLeftSidebar() {
+      const shouldRefocus = els.sidebarPanel.contains(document.activeElement);
+      state.leftCollapsed = !state.leftCollapsed;
+      applyLayoutState();
+      persistLayoutState();
+      if (shouldRefocus) {
+        requestAnimationFrame(() => els.toggleLeftSidebarBtn.focus({ preventScroll: true }));
+      }
+    }
+
+    function toggleRightSidebar() {
+      const shouldRefocus = els.assistantPanel.contains(document.activeElement);
+      state.rightCollapsed = !state.rightCollapsed;
+      applyLayoutState();
+      persistLayoutState();
+      if (shouldRefocus) {
+        requestAnimationFrame(() => els.toggleRightSidebarBtn.focus({ preventScroll: true }));
+      }
+    }
+
+    function beginHorizontalResize(event, bodyClass, onMove) {
+      event.preventDefault();
+      const move = moveEvent => {
+        onMove(moveEvent);
+        applyLayoutState();
+      };
+      const stop = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", stop);
+        document.body.classList.remove(bodyClass);
+        persistLayoutState();
+      };
+      document.body.classList.add(bodyClass);
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", stop);
+    }
+
+    function startSidebarResize(event) {
+      if (!isDesktopResizableLayout() || state.leftCollapsed) return;
+      const panelRect = els.sidebarPanel.getBoundingClientRect();
+      beginHorizontalResize(event, "sidebar-resizing", moveEvent => {
+        state.sidebarWidth = clampSidebarWidth(moveEvent.clientX - panelRect.left);
+      });
+    }
+
+    function startAssistantPanelResize(event) {
+      if (!isDesktopResizableLayout() || state.rightCollapsed) return;
+      const startX = event.clientX;
+      const startWidth = state.sessionNavWidth;
+      beginHorizontalResize(event, "assistant-panel-resizing", moveEvent => {
+        const delta = startX - moveEvent.clientX;
+        state.sessionNavWidth = clampSessionNavWidth(startWidth + delta);
+      });
+    }
+
+    function startAssistantResize(event) {
+      if (!isDesktopResizableLayout() || state.rightCollapsed) return;
+      const startX = event.clientX;
+      const startWidth = state.assistantChatWidth;
+      beginHorizontalResize(event, "assistant-resizing", moveEvent => {
+        const delta = startX - moveEvent.clientX;
+        state.assistantChatWidth = clampAssistantChatWidth(startWidth + delta);
+      });
+    }
+
+    function sessionSettings() {
+      const maxTurns = normalizeMaxTurns(els.maxTurnsInput.value);
+      els.maxTurnsInput.value = maxTurns;
+      return {
+        allow_write: els.allowWriteInput.checked,
+        allow_shell: els.allowShellInput.checked,
+        auto_run_tests: els.autoRunTestsInput.checked,
+        test_command: els.testCommandInput.value.trim(),
+        max_turns: maxTurns
+      };
+    }
+
+    function applySessionToControls(session) {
+      const settings = session?.settings || {};
+      const maxTurns = normalizeMaxTurns(settings.max_turns);
+      els.workspaceInput.value = session?.workspace_root || "";
+      els.allowWriteInput.checked = !!settings.allow_write;
+      els.allowShellInput.checked = !!settings.allow_shell;
+      els.autoRunTestsInput.checked = !!settings.auto_run_tests;
+      els.testCommandInput.value = settings.test_command || "";
+      els.maxTurnsInput.value = maxTurns;
+    }
+
+    function sameSessionSettings(left, right) {
+      const a = left || {};
+      const b = right || {};
+      return Boolean(a.allow_write) === Boolean(b.allow_write)
+        && Boolean(a.allow_shell) === Boolean(b.allow_shell)
+        && Boolean(a.auto_run_tests) === Boolean(b.auto_run_tests)
+        && String(a.test_command || "") === String(b.test_command || "")
+        && normalizeMaxTurns(a.max_turns) === normalizeMaxTurns(b.max_turns);
+    }
+
+    function currentSessionPayload() {
+      return {
+        workspace_root: els.workspaceInput.value.trim(),
+        settings: sessionSettings()
+      };
+    }
+
+    function sessionPayloadChanged(payload, session = state.currentSession) {
+      if (!session) return true;
+      return String(session.workspace_root || "") !== String(payload.workspace_root || "")
+        || !sameSessionSettings(payload.settings, session.settings);
+    }
+
+    function sessionSummaryFromSnapshot(session) {
+      return {
+        session_id: session.session_id,
+        title: session.title,
+        created_at: session.created_at,
+        updated_at: session.updated_at,
+        workspace_root: session.workspace_root || "",
+        pinned: !!session.pinned,
+        archived: !!session.archived
+      };
+    }
+
+    function upsertSessionSummary(session) {
+      const summary = sessionSummaryFromSnapshot(session);
+      const index = state.sessions.findIndex(item => item.session_id === summary.session_id);
+      if (index >= 0) state.sessions[index] = { ...state.sessions[index], ...summary };
+      else state.sessions.push(summary);
+      return summary;
+    }
+
+    function renderContextDrawer() {
+      const panel = drawerMeta[state.drawerPanel] ? state.drawerPanel : "settings";
+      const meta = drawerMeta[panel];
+      const panels = {
+        settings: els.drawerSettingsPanel,
+        tasks: els.drawerTasksPanel,
+        tests: els.drawerTestsPanel,
+        eval: els.drawerEvalPanel
+      };
+      state.drawerPanel = panel;
+      els.contextDrawer.hidden = !state.drawerOpen;
+      els.contextDrawerTitle.textContent = meta.title;
+      els.contextDrawerSubtitle.textContent = meta.subtitle;
+      Object.entries(panels).forEach(([key, element]) => {
+        if (element) element.hidden = key !== panel;
+      });
+      drawerButtons.forEach(button => {
+        button.classList.toggle("active", state.drawerOpen && button.dataset.drawerTarget === panel);
+      });
+    }
+
+    function toggleContextDrawer(panel) {
+      const nextPanel = drawerMeta[panel] ? panel : "settings";
+      if (state.drawerOpen && state.drawerPanel === nextPanel) state.drawerOpen = false;
+      else {
+        state.drawerPanel = nextPanel;
+        state.drawerOpen = true;
+      }
+      if (els.toolbarMoreMenu) els.toolbarMoreMenu.open = false;
+      renderContextDrawer();
+    }
+
+    function dirtyOpenFiles() {
+      return state.openFiles.filter(file => file.dirty);
+    }
+
+    function getOpenFile(path) {
+      return state.openFiles.find(file => file.path === normPath(path)) || null;
+    }
+
+    function getActiveFile() {
+      return getOpenFile(state.activeFilePath);
+    }
+
+    function canEditActiveFile() {
+      const file = getActiveFile();
+      return !!file && !!state.currentSession?.settings?.allow_write && !file.truncated && !state.streamController;
+    }
+
+    function canSaveActiveFile() {
+      const file = getActiveFile();
+      return !!file && file.dirty && canEditActiveFile();
+    }
+
+    function hasDirtyOpenFiles() {
+      return state.openFiles.some(file => file.dirty);
+    }
+
+    function upsertOpenFile(file) {
+      const normalizedPath = normPath(file.path);
+      const index = state.openFiles.findIndex(item => item.path === normalizedPath);
+      const merged = hydrateOpenFile(index >= 0 ? { ...state.openFiles[index], ...file, path: normalizedPath } : { ...file, path: normalizedPath });
+      if (index >= 0) state.openFiles[index] = merged;
+      else state.openFiles.push(merged);
+      state.activeFilePath = merged.path;
+      return merged;
+    }
+
+    function hasWorkspaceEntryChanged(file, entry) {
+      if (!entry || entry.is_dir) return true;
+      const previousModified = Number.isFinite(Number(file?.modifiedNs)) ? Number(file.modifiedNs) : null;
+      const nextModified = Number.isFinite(Number(entry.modified_ns)) ? Number(entry.modified_ns) : null;
+      const previousSize = Number.isFinite(Number(file?.sizeBytes)) ? Number(file.sizeBytes) : null;
+      const nextSize = Number.isFinite(Number(entry.size_bytes)) ? Number(entry.size_bytes) : null;
+      if (previousModified !== null && nextModified !== null && previousModified !== nextModified) return true;
+      if (previousSize !== null && nextSize !== null && previousSize !== nextSize) return true;
+      return !!file?.missingOnDisk;
+    }
+
+    function syncOpenFilesFromWorkspace() {
+      state.openFiles = state.openFiles.map(file => {
+        const entry = getWorkspaceEntry(file.path);
+        const changedOnDisk = hasWorkspaceEntryChanged(file, entry);
+        return hydrateOpenFile({
+          ...file,
+          modifiedNs: entry?.modified_ns ?? null,
+          sizeBytes: entry?.size_bytes ?? null,
+          missingOnDisk: !entry,
+          externalChanged: file.dirty ? !!file.externalChanged || changedOnDisk : changedOnDisk
+        });
+      });
+    }
+
+    function applyWorkspaceTreePayload(payload) {
+      const entries = Array.isArray(payload?.entries) ? payload.entries : [];
+      const note = String(payload?.note || "");
+      const nextSnapshotKey = workspaceSnapshotKey(entries);
+      const changed = state.workspaceSnapshotKey !== nextSnapshotKey || state.workspaceNote !== note;
+
+      state.workspaceEntries = entries;
+      state.workspaceEntryIndex = new Map(entries.map(entry => [normPath(entry.path), entry]));
+      state.workspaceSnapshotKey = nextSnapshotKey;
+      state.workspaceNote = note;
+
+      state.workspaceTreeModel = null;
+      state.workspaceNodeIndex = new Map();
+      syncOpenFilesFromWorkspace();
+      return changed;
+    }
+
+    function setStreamingControls(busy) {
+      updateSendButtonState(busy);
+      sendBtnEl.disabled = false;
+      runTestsBtnEl.disabled = busy;
+      saveSettingsBtnEl.disabled = busy;
+      els.newSessionBtn.disabled = busy;
+      if (els.deleteSessionBtn) els.deleteSessionBtn.disabled = busy;
+      els.openFolderBtn.disabled = busy;
+      els.openFileBtn.disabled = busy;
+      els.messageInput.disabled = busy;
+      if (els.refreshTreeBtn) els.refreshTreeBtn.disabled = busy;
+      els.stopBtn.disabled = true;
+      els.stopBtn.hidden = true;
+      els.reloadFileBtn.disabled = busy || !getActiveFile();
+      els.saveFileBtn.disabled = busy || !canSaveActiveFile();
+      renderEditor({ refreshSummary: false });
+    }
+
+    async function fetchJson(url, options = {}) {
+      const response = await fetch(url, {
+        headers: { "Content-Type": "application/json" },
+        ...options
+      });
+      const body = await response.json().catch(() => null);
+      if (!response.ok) {
+        throw new Error(body?.detail || body?.message || `请求失败: ${response.status}`);
+      }
+      if (body && typeof body === "object" && "code" in body && "data" in body) {
+        if (Number(body.code) !== 0) {
+          throw new Error(body.message || `请求失败: ${response.status}`);
+        }
+        return body.data;
+      }
+      return body;
+    }
+
+    function updateMeta() {
+      els.chatMeta.textContent = !state.currentSession
+        ? "尚未选择会话"
+        : `${state.currentSession.title} | ${formatWorkspaceLabel(state.currentSession.workspace_root)}`;
+      renderSessionRail();
+    }
+
+    function renderSessionRail() {
+      const hasSession = !!state.currentSession;
+      const title = hasSession
+        ? `${state.currentSession.title} | ${formatWorkspaceLabel(state.currentSession.workspace_root)}`
+        : "尚未选择会话";
+      els.currentSessionRail.classList.toggle("active", hasSession);
+      els.currentSessionRail.classList.toggle("empty", !hasSession);
+      els.currentSessionRail.setAttribute("aria-label", title);
+      els.currentSessionRail.title = title;
+      els.currentSessionRail.textContent = hasSession ? state.currentSession.title : "未选择会话";
+    }
+
+    function resetWorkspaceState() {
+      state.workspaceEntries = [];
+      state.workspaceEntryIndex = new Map();
+      state.workspaceSnapshotKey = "";
+      state.workspaceNote = "";
+      state.expanded = {};
+      state.openFiles = [];
+      state.activeFilePath = "";
+      state.workspaceTreeModel = null;
+      state.workspaceNodeIndex = new Map();
+      renderWorkspaceMeta();
+      renderWorkspaceTree();
+      renderFileTabs();
+      renderEditor();
+    }
+
+    function currentWorkspaceFilter() {
+      return normPath(els.workspaceInput.value.trim() || state.currentSession?.workspace_root || "");
+    }
+
+    function sessionsForWorkspace(workspaceRoot) {
+      const root = normPath(workspaceRoot);
+      return state.sessions.filter(session => normPath(session.workspace_root) === root);
+    }
+
+    function qaSessions() {
+      return state.sessions.filter(session => !normPath(session.workspace_root));
+    }
+
+    function sortSessions(items) {
+      return [...items].sort((left, right) => {
+        if (!!left.pinned !== !!right.pinned) return Number(!!right.pinned) - Number(!!left.pinned);
+        return String(right.updated_at || "").localeCompare(String(left.updated_at || ""));
+      });
+    }
+
+    function sessionQuery() {
+      return String(state.sessionSearchQuery || "").trim().toLowerCase();
+    }
+
+    function sessionMatchesQuery(session, query = sessionQuery()) {
+      if (!query) return true;
+      const haystacks = [
+        session.title,
+        session.workspace_root,
+        formatWorkspaceLabel(session.workspace_root)
+      ];
+      return haystacks.some(item => String(item || "").toLowerCase().includes(query));
+    }
+
+    function preferredSession(filterRoot = currentWorkspaceFilter()) {
+      if (arguments.length === 0) {
+        const activeSessionId = readActiveSessionId();
+        const matched = state.sessions.find(session => session.session_id === activeSessionId);
+        if (matched) return matched;
+      }
+      const scoped = filterRoot ? sessionsForWorkspace(filterRoot) : qaSessions();
+      const activeScoped = sortSessions(scoped.filter(session => !session.archived));
+      const activeAll = sortSessions(state.sessions.filter(session => !session.archived));
+      const archivedScoped = sortSessions(scoped.filter(session => session.archived));
+      const archivedAll = sortSessions(state.sessions.filter(session => session.archived));
+      return activeScoped[0] || activeAll[0] || archivedScoped[0] || archivedAll[0] || null;
+    }
+
+    function renderSessionItem(session, { archived = false } = {}) {
+      const active = state.currentSession?.session_id === session.session_id ? "active" : "";
+      const pinLabel = session.pinned ? "取消置顶" : "置顶";
+      const archiveLabel = archived ? "恢复" : "归档";
+      const workspaceLabel = session.workspace_root ? formatWorkspaceLabel(session.workspace_root) : "问答模式";
+      return `
+        <div class="session-card ${active}" data-session-id="${escapeHtml(session.session_id)}">
+          <button class="session-main" type="button" data-session-open="${escapeHtml(session.session_id)}" title="${escapeHtml(session.title)}">
+            <div class="session-title-row">
+              <div class="session-title">${escapeHtml(session.title)}</div>
+              ${session.pinned ? '<span class="session-chip">置顶</span>' : ""}
+            </div>
+            <div class="session-meta">${escapeHtml(formatTimestamp(session.updated_at))}</div>
+            <div class="session-meta">${escapeHtml(workspaceLabel)}</div>
+          </button>
+          <div class="session-card-actions">
+            <button
+              class="ghost session-inline-btn"
+              type="button"
+              data-session-archive="${escapeHtml(session.session_id)}"
+              aria-label="${escapeHtml(`${archiveLabel}会话`)}"
+              title="${escapeHtml(archiveLabel)}"
+            >${escapeHtml(archiveLabel)}</button>
+            <details class="session-card-menu" data-session-menu>
+              <summary aria-label="更多操作" title="更多操作">⋯</summary>
+              <div class="session-card-menu-panel">
+                <button class="secondary" type="button" data-session-pin="${escapeHtml(session.session_id)}">${escapeHtml(pinLabel)}</button>
+                <button class="secondary" type="button" data-session-rename="${escapeHtml(session.session_id)}">重命名</button>
+                <button class="danger" type="button" data-session-delete="${escapeHtml(session.session_id)}">删除</button>
+              </div>
+            </details>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderSessionItems(items, options = {}) {
+      if (!items.length) return `<div class="empty">${escapeHtml(options.emptyText || "暂无会话")}</div>`;
+      return items.map(session => renderSessionItem(session, options)).join("");
+    }
+
+    function syncSessionMenuDirection(menu) {
+      if (!menu) return;
+      menu.classList.remove("drop-up");
+      const panel = menu.querySelector(".session-card-menu-panel");
+      const scrollHost = menu.closest(".session-nav-scroll");
+      if (!panel || !scrollHost) return;
+      const panelHeight = panel.offsetHeight || 120;
+      const menuRect = menu.getBoundingClientRect();
+      const scrollRect = scrollHost.getBoundingClientRect();
+      const spaceBelow = scrollRect.bottom - menuRect.bottom;
+      const spaceAbove = menuRect.top - scrollRect.top;
+      if (spaceBelow < panelHeight + 8 && spaceAbove > spaceBelow) menu.classList.add("drop-up");
+    }
+
+    function closeSessionMenu(target) {
+      target?.closest("[data-session-menu]")?.removeAttribute("open");
+    }
+
+    function wireSessionListActions(container, { archived = false } = {}) {
+      if (!container) return;
+      container.querySelectorAll("[data-session-open]").forEach(button => {
+        button.addEventListener("click", () => loadSession(button.dataset.sessionOpen).catch(error => setStatus(error.message)));
+      });
+      container.querySelectorAll("[data-session-archive]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.stopPropagation();
+          const nextArchived = !archived;
+          updateSessionAttrs(button.dataset.sessionArchive, { archived: nextArchived })
+            .then(updated => {
+              if (updated) setStatus(nextArchived ? "会话已归档。" : "会话已恢复。");
+            })
+            .catch(error => setStatus(error.message));
+        });
+      });
+      container.querySelectorAll("[data-session-pin]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.stopPropagation();
+          closeSessionMenu(button);
+          const session = state.sessions.find(item => item.session_id === button.dataset.sessionPin);
+          if (!session) return;
+          updateSessionAttrs(session.session_id, { pinned: !session.pinned })
+            .then(updated => {
+              if (updated) setStatus(session.pinned ? "已取消置顶。" : "已置顶。");
+            })
+            .catch(error => setStatus(error.message));
+        });
+      });
+      container.querySelectorAll("[data-session-rename]").forEach(button => {
+        button.addEventListener("click", async event => {
+          event.stopPropagation();
+          closeSessionMenu(button);
+          const session = state.sessions.find(item => item.session_id === button.dataset.sessionRename);
+          if (!session) return;
+          const nextTitle = window.prompt("重命名会话", session.title || "");
+          if (nextTitle === null) return;
+          try {
+            const updated = await updateSessionAttrs(session.session_id, { title: nextTitle.trim() });
+            if (updated) setStatus("会话名称已更新。");
+          } catch (error) {
+            setStatus(error.message || "重命名会话失败。");
+          }
+        });
+      });
+      container.querySelectorAll("[data-session-delete]").forEach(button => {
+        button.addEventListener("click", event => {
+          event.stopPropagation();
+          closeSessionMenu(button);
+          deleteSessionById(button.dataset.sessionDelete).catch(error => setStatus(error.message));
+        });
+      });
+      container.querySelectorAll("[data-session-menu]").forEach(menu => {
+        menu.addEventListener("toggle", () => {
+          menu.classList.remove("drop-up");
+          if (!menu.open) return;
+          document.querySelectorAll("[data-session-menu][open]").forEach(other => {
+            if (other !== menu) other.open = false;
+          });
+          requestAnimationFrame(() => syncSessionMenuDirection(menu));
+        });
+      });
+    }
+
+    function renderSessions() {
+      const query = sessionQuery();
+      const activeSessions = sortSessions(state.sessions.filter(session => !session.archived && sessionMatchesQuery(session, query)));
+      const archivedSessions = sortSessions(state.sessions.filter(session => session.archived && sessionMatchesQuery(session, query)));
+
+      els.sessionList.innerHTML = renderSessionItems(activeSessions, {
+        emptyText: query ? "没有匹配的未归档会话。" : "暂无未归档会话。"
+      });
+      wireSessionListActions(els.sessionList, { archived: false });
+
+      els.archivedSessionList.hidden = !state.archivedExpanded;
+      els.toggleArchivedBtn.setAttribute("aria-expanded", String(state.archivedExpanded));
+      els.toggleArchivedBtn.textContent = `已归档 (${archivedSessions.length})`;
+      if (state.archivedExpanded) {
+        els.archivedSessionList.innerHTML = renderSessionItems(archivedSessions, {
+          archived: true,
+          emptyText: query ? "没有匹配的归档会话。" : "暂无归档会话。"
+        });
+        wireSessionListActions(els.archivedSessionList, { archived: true });
+      } else {
+        els.archivedSessionList.innerHTML = "";
+      }
+    }
+
+    function renderMessages(session) {
+      const messages = session?.messages || [];
+      if (!messages.length) {
+        els.messages.innerHTML = state.pendingAssistantEl
+          ? ""
+          : '<div class="empty">开始一轮多步对话后，消息会显示在这里。</div>';
+        if (state.pendingAssistantEl) els.messages.appendChild(state.pendingAssistantEl);
+        return;
+      }
+      els.messages.innerHTML = messages.map(message => `
+        <div class="message ${message.role === "user" ? "user" : "assistant"}">${escapeHtml(message.content)}</div>
+      `).join("");
+      if (state.pendingAssistantEl) els.messages.appendChild(state.pendingAssistantEl);
+      els.messages.scrollTop = els.messages.scrollHeight;
+    }
+
+    function renderTasks(tasks) {
+      if (!tasks?.length) {
+        els.taskBoard.innerHTML = '<div class="empty">暂无任务</div>';
+        return;
+      }
+      els.taskBoard.innerHTML = tasks.map(task => `
+        <div class="task-item">
+          <div class="task-title">${escapeHtml(task.title)}</div>
+          <div class="task-status">状态：${escapeHtml(task.status)} | 依赖：${escapeHtml((task.depends_on || []).join(", ") || "无")}</div>
+          <div class="task-summary">${escapeHtml(task.summary || task.description || "")}</div>
+        </div>
+      `).join("");
+    }
+    function renderTestSummary(summary) {
+      if (!summary) {
+        els.testSummary.innerHTML = '<div class="empty">尚未运行测试</div>';
+        return;
+      }
+      const title = summary.cancelled ? "已取消" : (summary.passed ? "通过" : "失败");
+      els.testSummary.innerHTML = `
+        <div class="task-title">${title}</div>
+        <div class="task-status">耗时：${escapeHtml(summary.duration_ms)} ms</div>
+        <div class="task-status">命令：${escapeHtml(summary.command || "")}</div>
+        <div class="task-summary">${escapeHtml(summary.raw_tail || "")}</div>
+      `;
+    }
+
+    function renderEval(payload) {
+      if (!payload?.payload) {
+        els.evalSummary.innerHTML = '<div class="empty">暂无评测结果</div>';
+        return;
+      }
+      const summary = payload.payload.summary || {};
+      els.evalSummary.innerHTML = `
+        <div class="task-title">${escapeHtml(payload.path || "")}</div>
+        <div class="task-status">成功率：${escapeHtml(summary.success_rate ?? "暂无")}</div>
+        <div class="task-status">平均耗时：${escapeHtml(summary.avg_duration_ms ?? "暂无")} ms</div>
+        <div class="task-status">恢复触发率：${escapeHtml(summary.recovery_trigger_rate ?? "暂无")}</div>
+      `;
+    }
+
+    function renderWorkspaceMeta(note = "") {
+      if (!state.currentSession) {
+        els.workspaceMeta.textContent = "尚未选择会话";
+        return;
+      }
+      if (!state.currentSession.workspace_root) {
+        els.workspaceMeta.textContent = "当前会话未配置工作区。问答模式可以留空；要浏览或编辑文件，请先填写真实项目路径并保存设置。";
+        return;
+      }
+      const lines = [
+        `工作区：${formatWorkspaceLabel(state.currentSession.workspace_root)}`, 
+        `条目数：${state.workspaceEntries.length}`
+      ];
+      if (note) lines.push(note);
+      els.workspaceMeta.textContent = lines.join("\n");
+    }
+
+    function fileMetaLabel(name) {
+      const parts = String(name || "").split(".");
+      if (parts.length < 2) return "文件";
+      return parts.pop().slice(0, 4).toUpperCase();
+    }
+
+    function fileMarkerLabel(name) {
+      const lowerName = String(name || "").toLowerCase();
+      const dotIndex = lowerName.lastIndexOf(".");
+      const extension = dotIndex >= 0 ? lowerName.slice(dotIndex) : "";
+      return FILE_TYPE_MARKERS[extension] || FILE_TYPE_MARKERS.default;
+    }
+
+    function buildWorkspaceTreeModel(entries) {
+      const rootNode = {
+        path: TREE_ROOT_PATH,
+        name: baseName(state.currentSession?.workspace_root || "") || "workspace",
+        is_dir: true,
+        root: true,
+        depth: 0,
+        children: []
+      };
+      const nodeIndex = new Map([[TREE_ROOT_PATH, rootNode]]);
+      for (const entry of entries) {
+        const parts = normPath(entry.path).split("/").filter(Boolean);
+        let siblings = rootNode.children;
+        let current = "";
+        for (let index = 0; index < parts.length; index += 1) {
+          const part = parts[index];
+          const isLast = index === parts.length - 1;
+          current = current ? `${current}/${part}` : part;
+          let node = nodeIndex.get(current);
+          if (!node) {
+            node = {
+              path: current,
+              name: part,
+              is_dir: isLast ? !!entry.is_dir : true,
+              root: false,
+              depth: index + 1,
+              children: []
+            };
+            siblings.push(node);
+            nodeIndex.set(current, node);
+          }
+          if (isLast) node.is_dir = !!entry.is_dir;
+          else node.is_dir = true;
+          siblings = node.children;
+        }
+      }
+      const sortNodes = nodes => {
+        nodes.sort((a, b) => {
+          if (a.is_dir !== b.is_dir) return a.is_dir ? -1 : 1;
+          return a.name.localeCompare(b.name, "zh-CN");
+        });
+        nodes.forEach(node => sortNodes(node.children));
+      };
+      sortNodes(rootNode.children);
+      state.workspaceTreeModel = rootNode;
+      state.workspaceNodeIndex = nodeIndex;
+      return rootNode;
+    }
+
+    function getWorkspaceTreeModel() {
+      return state.workspaceTreeModel || buildWorkspaceTreeModel(state.workspaceEntries);
+    }
+
+    function renderTreeNodes(nodes) {
+      return nodes.map(node => {
+      const open = state.expanded[node.path] === true;
+        const active = !node.is_dir && state.activeFilePath === node.path ? "active" : "";
+        const actionAttr = node.is_dir
+          ? `data-tree-dir="${escapeHtml(node.path)}"`
+          : `data-tree-file="${escapeHtml(node.path)}"`;
+        const marker = node.is_dir
+          ? ""
+          : `<span class="tree-file-marker" aria-hidden="true">${escapeHtml(fileMarkerLabel(node.name))}</span>`;
+        const childrenBody = open && node.children.length
+          ? renderTreeNodes(node.children)
+          : node.root && open
+            ? '<div class="empty tree-empty">当前工作区暂无可显示文件</div>'
+            : "";
+        const meta = node.is_dir ? "" : `<span class="tree-meta">${escapeHtml(fileMetaLabel(node.name))}</span>`;
+        return `
+          <div class="tree-node" data-tree-node="${escapeHtml(node.path)}" data-open="${open ? "true" : "false"}">
+            <div class="tree-row ${node.root ? "root" : node.is_dir ? "directory" : "file"} ${active}" data-tree-row-path="${escapeHtml(node.path)}" style="padding-left:${6 + node.depth * 12}px">
+              <button class="tree-toggle" type="button" data-tree-toggle="${escapeHtml(node.path)}" aria-label="${open ? "折叠目录" : "展开目录"}">${open ? "v" : ">"}</button>
+              <button class="tree-action" type="button" ${actionAttr} title="${escapeHtml(node.root ? state.currentSession?.workspace_root || node.name : node.path)}">
+                <span class="tree-main">
+                  ${marker}
+                  <span class="tree-name">${escapeHtml(node.name)}</span>
+                </span>
+                ${meta}
+              </button>
+            </div>
+            <div class="tree-children" data-tree-children ${open ? "" : "hidden"}>${childrenBody}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function syncWorkspaceSelection() {
+      els.workspaceTree.querySelectorAll(".tree-row.active").forEach(element => element.classList.remove("active"));
+      if (!state.activeFilePath) return;
+      const target = els.workspaceTree.querySelector(`[data-tree-row-path="${escapeSelector(state.activeFilePath)}"]`);
+      target?.classList.add("active");
+    }
+
+    function updateTreeNodeDom(path) {
+      const normalizedPath = normPath(path || TREE_ROOT_PATH) || TREE_ROOT_PATH;
+      const node = state.workspaceNodeIndex.get(normalizedPath);
+      if (!node) {
+        renderWorkspaceTree();
+        return;
+      }
+      const treeNode = els.workspaceTree.querySelector(`[data-tree-node="${escapeSelector(normalizedPath)}"]`);
+      if (!treeNode) {
+        renderWorkspaceTree();
+        return;
+      }
+      const open = state.expanded[normalizedPath] === true;
+      treeNode.dataset.open = open ? "true" : "false";
+      const toggle = treeNode.querySelector(`[data-tree-toggle="${escapeSelector(normalizedPath)}"]`) || treeNode.querySelector("[data-tree-toggle]");
+      if (toggle) {
+        toggle.textContent = open ? "v" : ">";
+        toggle.setAttribute("aria-label", open ? "折叠目录" : "展开目录");
+      }
+      const children = treeNode.querySelector("[data-tree-children]");
+      if (!children) return;
+      if (!open) {
+        children.hidden = true;
+        children.innerHTML = "";
+        return;
+      }
+      children.hidden = false;
+      children.innerHTML = node.children.length
+        ? renderTreeNodes(node.children)
+        : node.root
+          ? '<div class="empty tree-empty">当前工作区暂无可显示文件</div>'
+          : "";
+      syncWorkspaceSelection();
+    }
+
+    function toggleTreeNode(path) {
+      const normalizedPath = normPath(path || TREE_ROOT_PATH) || TREE_ROOT_PATH;
+      state.expanded[normalizedPath] = state.expanded[normalizedPath] !== true;
+      updateTreeNodeDom(normalizedPath);
+    }
+
+    function renderWorkspaceTree() {
+      if (!state.currentSession) {
+        els.workspaceTree.innerHTML = '<div class="empty">先创建或选择会话。</div>';
+        return;
+      }
+      if (!state.currentSession.workspace_root) {
+        els.workspaceTree.innerHTML = '<div class="empty">当前会话没有工作区，无法浏览目录。</div>';
+        return;
+      }
+      const rootNode = getWorkspaceTreeModel();
+      els.workspaceTree.innerHTML = renderTreeNodes([rootNode]);
+      syncWorkspaceSelection();
+    }
+
+    function syncFileTabsState() {
+      if (!state.openFiles.length) return;
+      const tabs = [...els.fileTabs.querySelectorAll("[data-tab]")];
+      if (tabs.length !== state.openFiles.length) {
+        renderFileTabs();
+        return;
+      }
+      let needsRerender = false;
+      tabs.forEach((element, index) => {
+        const file = state.openFiles[index];
+        if (!file || element.dataset.tab !== file.path) {
+          needsRerender = true;
+          return;
+        }
+        element.classList.toggle("active", file.path === state.activeFilePath);
+        element.classList.toggle("dirty", !!file.dirty);
+        element.title = file.path;
+        const label = element.querySelector(".file-name");
+        if (label && label.textContent !== file.name) label.textContent = file.name;
+      });
+      if (needsRerender) renderFileTabs();
+    }
+
+    function renderFileTabs() {
+      if (!state.openFiles.length) {
+        els.fileTabs.innerHTML = '<div class="empty" style="padding:8px 10px">尚未打开文件</div>';
+        return;
+      }
+      els.fileTabs.innerHTML = state.openFiles.map(file => `
+        <div class="file-tab ${file.path === state.activeFilePath ? "active" : ""} ${file.dirty ? "dirty" : ""}" data-tab="${escapeHtml(file.path)}" title="${escapeHtml(file.path)}">
+          <span class="file-name">${escapeHtml(file.name)}</span>
+          <button class="ghost file-tab-close" type="button" data-close="${escapeHtml(file.path)}" aria-label="关闭文件">x</button>
+        </div>
+      `).join("");
+    }
+    function fallbackDiff(beforeLines, afterLines) {
+      const lines = [];
+      let add = 0;
+      let del = 0;
+      for (let index = 0; index < Math.max(beforeLines.length, afterLines.length); index += 1) {
+        if (beforeLines[index] === afterLines[index]) {
+          lines.push({ t: "context", l: beforeLines[index] !== undefined ? index + 1 : "", r: afterLines[index] !== undefined ? index + 1 : "", s: beforeLines[index] ?? "" });
+          continue;
+        }
+        if (beforeLines[index] !== undefined) {
+          lines.push({ t: "removed", l: index + 1, r: "", s: beforeLines[index] });
+          del += 1;
+        }
+        if (afterLines[index] !== undefined) {
+          lines.push({ t: "added", l: "", r: index + 1, s: afterLines[index] });
+          add += 1;
+        }
+      }
+      return { lines, add, del, fallback: true };
+    }
+
+    function diffLines(beforeText, afterText) {
+      const beforeLines = String(beforeText || "").split("\n");
+      const afterLines = String(afterText || "").split("\n");
+      if (beforeLines.length * afterLines.length > 60000) return fallbackDiff(beforeLines, afterLines);
+      const dp = Array.from({ length: beforeLines.length + 1 }, () => new Uint16Array(afterLines.length + 1));
+      for (let i = beforeLines.length - 1; i >= 0; i -= 1) {
+        for (let j = afterLines.length - 1; j >= 0; j -= 1) {
+          dp[i][j] = beforeLines[i] === afterLines[j]
+            ? dp[i + 1][j + 1] + 1
+            : Math.max(dp[i + 1][j], dp[i][j + 1]);
+        }
+      }
+      const lines = [];
+      let add = 0;
+      let del = 0;
+      let i = 0;
+      let j = 0;
+      while (i < beforeLines.length && j < afterLines.length) {
+        if (beforeLines[i] === afterLines[j]) {
+          lines.push({ t: "context", l: i + 1, r: j + 1, s: beforeLines[i] });
+          i += 1;
+          j += 1;
+        } else if (dp[i + 1][j] >= dp[i][j + 1]) {
+          lines.push({ t: "removed", l: i + 1, r: "", s: beforeLines[i] });
+          del += 1;
+          i += 1;
+        } else {
+          lines.push({ t: "added", l: "", r: j + 1, s: afterLines[j] });
+          add += 1;
+          j += 1;
+        }
+      }
+      while (i < beforeLines.length) {
+        lines.push({ t: "removed", l: i + 1, r: "", s: beforeLines[i] });
+        del += 1;
+        i += 1;
+      }
+      while (j < afterLines.length) {
+        lines.push({ t: "added", l: "", r: j + 1, s: afterLines[j] });
+        add += 1;
+        j += 1;
+      }
+      return { lines, add, del, fallback: false };
+    }
+
+    function firstChangedLine(diff) {
+      const first = diff.lines.find(line => line.t !== "context");
+      return Number(first?.r || first?.l || 1) || 1;
+    }
+
+    function lineOffset(content, lineNumber) {
+      const target = Math.max(1, Number(lineNumber) || 1);
+      const lines = String(content || "").split("\n");
+      let offset = 0;
+      for (let index = 1; index < target && index < lines.length + 1; index += 1) {
+        offset += lines[index - 1].length + 1;
+      }
+      return offset;
+    }
+
+    function focusEditorAtLine(lineNumber) {
+      requestAnimationFrame(() => {
+        if (els.editorTextarea.hidden) return;
+        const offset = lineOffset(els.editorTextarea.value, lineNumber);
+        els.editorTextarea.focus({ preventScroll: true });
+        els.editorTextarea.setSelectionRange(offset, offset);
+        const lineHeight = parseFloat(window.getComputedStyle(els.editorTextarea).lineHeight) || 21;
+        els.editorTextarea.scrollTop = Math.max(0, (Math.max(1, Number(lineNumber) || 1) - 3) * lineHeight);
+      });
+    }
+
+    function getDiffSummary(file) {
+      const cacheKey = `${file.originalRevision}:${file.contentRevision}`;
+      if (file.diffCacheKey === cacheKey && file.diffCache) return file.diffCache;
+      const diff = diffLines(file.originalContent, file.content);
+      const summary = { diff, firstLine: firstChangedLine(diff) };
+      file.diffCacheKey = cacheKey;
+      file.diffCache = summary;
+      return summary;
+    }
+
+    function syncChangeSummarySelection() {
+      els.changeSummaryList.querySelectorAll("[data-change-file]").forEach(element => {
+        element.classList.toggle("active", element.dataset.changeFile === state.activeFilePath);
+      });
+    }
+
+    function scheduleChangeSummaryRender({ immediate = false } = {}) {
+      if (changeSummaryTimer) {
+        window.clearTimeout(changeSummaryTimer);
+        changeSummaryTimer = null;
+      }
+      if (immediate) {
+        renderChangeSummary();
+        return;
+      }
+      changeSummaryTimer = window.setTimeout(() => {
+        changeSummaryTimer = null;
+        renderChangeSummary();
+      }, CHANGE_SUMMARY_DEBOUNCE_MS);
+    }
+
+    function renderChangeSummary() {
+      const dirtyFiles = dirtyOpenFiles();
+      if (!dirtyFiles.length) {
+        els.changeSummary.hidden = true;
+        els.changeSummaryMeta.textContent = "暂无变更";
+        els.changeSummaryList.innerHTML = "";
+        return;
+      }
+
+      const entries = dirtyFiles.map(file => {
+        const summary = getDiffSummary(file);
+        return { file, diff: summary.diff, firstLine: summary.firstLine };
+      });
+      const totalAdd = entries.reduce((sum, entry) => sum + entry.diff.add, 0);
+      const totalDel = entries.reduce((sum, entry) => sum + entry.diff.del, 0);
+
+      els.changeSummary.hidden = false;
+      els.changeSummaryMeta.textContent = `共 ${entries.length} 个文件，新增 ${totalAdd} 行，删除 ${totalDel} 行`;
+      els.changeSummaryList.innerHTML = entries.map(entry => `
+        <button class="change-link ${entry.file.path === state.activeFilePath ? "active" : ""}" type="button" data-change-file="${escapeHtml(entry.file.path)}" data-change-line="${entry.firstLine}" title="${escapeHtml(entry.file.path)}">
+          <span class="change-link-main">
+            <span class="change-link-name">${escapeHtml(entry.file.name)}</span>
+            <span class="change-link-path">${escapeHtml(entry.file.path)}</span>
+          </span>
+          <span class="change-link-badges">
+            <span class="diff-badge added">+${entry.diff.add}</span>
+            <span class="diff-badge removed">-${entry.diff.del}</span>
+          </span>
+        </button>
+      `).join("");
+    }
+
+    function activateFile(path) {
+      const normalizedPath = normPath(path);
+      state.activeFilePath = normalizedPath;
+      syncWorkspaceSelection();
+      syncFileTabsState();
+      syncChangeSummarySelection();
+      renderEditor({ refreshSummary: false });
+    }
+
+    function updateSendButtonState(busy) {
+      sendBtnEl.textContent = busy ? "停止 Stop" : "发送";
+      sendBtnEl.classList.toggle("warn", busy);
+      sendBtnEl.setAttribute("aria-label", busy ? "停止当前流式请求" : "发送消息");
+    }
+
+    function renderEditor({ syncValue = true, refreshSummary = true } = {}) {
+      const file = getActiveFile();
+      if (!file) {
+        els.editorTitle.textContent = "本地代码工作台";
+        els.editorMeta.textContent = "多标签编辑模式，左右侧栏可独立折叠。";
+        els.editorStatus.textContent = "尚未打开文件";
+        els.editorEmpty.hidden = false;
+        els.editorTextarea.hidden = true;
+        if (syncValue) els.editorTextarea.value = "";
+        els.editorTextarea.disabled = true;
+        els.reloadFileBtn.disabled = true;
+        els.saveFileBtn.disabled = true;
+        if (refreshSummary) scheduleChangeSummaryRender({ immediate: true });
+        return;
+      }
+
+      const tabIndex = Math.max(0, state.openFiles.findIndex(item => item.path === file.path)) + 1;
+      const modeLabel = state.currentSession?.workspace_root ? "工作区模式" : "问答模式";
+      const bits = [`标签 ${tabIndex}/${state.openFiles.length}`];
+      if (file.contentHash) bits.push(`校验 ${file.contentHash.slice(0, 12)}`);
+      if (file.truncated) bits.push("文件过大，只读显示");
+      else if (!state.currentSession?.settings?.allow_write) bits.push("当前会话未开启写权限");
+      else if (file.dirty) bits.push("存在未保存修改");
+      else bits.push("已与磁盘同步");
+      if (state.streamController) bits.push("助手执行中");
+
+      els.editorTitle.textContent = "代码编辑器";
+      els.editorMeta.textContent = `已打开 ${state.openFiles.length} 个标签 | ${modeLabel}`;
+      els.editorStatus.textContent = bits.join(" | ");
+      els.editorEmpty.hidden = true;
+      els.editorTextarea.hidden = false;
+      if (syncValue && els.editorTextarea.value !== file.content) els.editorTextarea.value = file.content;
+      els.editorTextarea.disabled = !canEditActiveFile();
+      els.reloadFileBtn.disabled = !!state.streamController;
+      els.saveFileBtn.disabled = !canSaveActiveFile();
+      if (refreshSummary) scheduleChangeSummaryRender({ immediate: true });
+    }
+
+    async function refreshSessions() {
+      state.sessions = await fetchJson("/sessions");
+      renderSessions();
+    }
+
+    async function updateSessionAttrs(sessionId, payload) {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return null;
+      }
+      const updated = await fetchJson(`/sessions/${sessionId}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      });
+      upsertSessionSummary(updated);
+      if (state.currentSession?.session_id === sessionId) {
+        state.currentSession = updated;
+        persistActiveSessionId(updated.session_id);
+        applySessionToControls(state.currentSession);
+        renderMessages(state.currentSession);
+        renderTasks(state.currentSession.tasks);
+        renderTestSummary(state.currentSession.last_test_summary);
+        updateMeta();
+      }
+      renderSessions();
+      return updated;
+    }
+
+    async function loadSession(id) {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      if (state.currentSession?.session_id === id) return;
+      if (hasDirtyOpenFiles() && !window.confirm("切换会话会丢失未保存的文件修改。是否继续？")) return;
+      state.currentSession = await fetchJson(`/sessions/${id}`);
+      persistActiveSessionId(state.currentSession.session_id);
+      upsertSessionSummary(state.currentSession);
+      applySessionToControls(state.currentSession);
+      resetWorkspaceState();
+      renderMessages(state.currentSession);
+      renderTasks(state.currentSession.tasks);
+      renderTestSummary(state.currentSession.last_test_summary);
+      updateMeta();
+      renderSessions();
+      await refreshWorkspaceTree({ skipPersist: true, silent: true });
+    }
+
+    async function createSession() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      const session = await fetchJson("/sessions", {
+        method: "POST",
+        body: JSON.stringify({
+          workspace_root: els.workspaceInput.value.trim(),
+          settings: sessionSettings()
+        })
+      });
+      upsertSessionSummary(session);
+      renderSessions();
+      await loadSession(session.session_id);
+      if (state.pendingPickedFilePath) {
+        const pendingPath = state.pendingPickedFilePath;
+        state.pendingPickedFilePath = "";
+        await openFile(pendingPath, { skipPersist: true, quiet: true });
+        setStatus(`已创建新会话并打开 ${pendingPath}`);
+        return;
+      }
+      setStatus("已创建新会话。");
+    }
+
+    async function persistCurrentControls({ silent = false, refreshWorkspace = false } = {}) {
+      if (!state.currentSession) throw new Error("请先创建或选择会话。");
+      const payload = currentSessionPayload();
+      const nextRoot = payload.workspace_root;
+      const previousRoot = state.currentSession.workspace_root || "";
+      if (nextRoot !== previousRoot && hasDirtyOpenFiles() && !window.confirm("切换工作区会丢失未保存的文件修改。是否继续？")) {
+        throw new Error("已取消切换工作区。");
+      }
+      if (!sessionPayloadChanged(payload)) {
+        if (refreshWorkspace || nextRoot !== previousRoot) {
+          resetWorkspaceState();
+          await refreshWorkspaceTree({ skipPersist: true, silent: true });
+        } else {
+          renderWorkspaceMeta();
+          renderEditor();
+        }
+        if (!silent) setStatus("设置已同步。");
+        return state.currentSession;
+      }
+      state.currentSession = await fetchJson(`/sessions/${state.currentSession.session_id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload)
+      });
+      persistActiveSessionId(state.currentSession.session_id);
+      upsertSessionSummary(state.currentSession);
+      applySessionToControls(state.currentSession);
+      renderSessions();
+      renderTestSummary(state.currentSession.last_test_summary);
+      updateMeta();
+      if (refreshWorkspace || nextRoot !== previousRoot) {
+        resetWorkspaceState();
+        await refreshWorkspaceTree({ skipPersist: true, silent: true });
+      } else {
+        renderWorkspaceMeta();
+        renderEditor();
+      }
+      if (!silent) setStatus("设置已保存。");
+      return state.currentSession;
+    }
+
+    async function pickLocalPath(kind) {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      const isFile = kind === "file";
+      const endpoint = isFile ? "/system/pick-file" : "/system/pick-folder";
+      try {
+        setStatus(isFile ? "正在打开文件选择器..." : "正在打开文件夹选择器...");
+        const payload = await fetchJson(endpoint, { method: "POST" });
+        if (!payload.selected) {
+          setStatus("已取消选择。");
+          return;
+        }
+        els.workspaceInput.value = payload.workspace_root || "";
+        renderSessions();
+        state.pendingPickedFilePath = payload.relative_path || "";
+        if (!state.currentSession) {
+          setStatus(
+            isFile
+              ? `已选择 ${payload.path}。创建会话后会自动打开文件。`
+              : `已选择工作区 ${payload.workspace_root}`
+          );
+          return;
+        }
+        await persistCurrentControls({ silent: true, refreshWorkspace: true });
+        if (isFile && payload.relative_path) {
+          await openFile(payload.relative_path, { skipPersist: true, quiet: true });
+          state.pendingPickedFilePath = "";
+          setStatus(`已打开 ${payload.path}`);
+          return;
+        }
+        state.pendingPickedFilePath = "";
+        setStatus(`已选择工作区 ${payload.workspace_root}`);
+      } catch (error) {
+        setStatus(error.message || "打开本地选择器失败。");
+      }
+    }
+
+    async function refreshWorkspaceTree({ skipPersist = false, silent = false } = {}) {
+      if (!state.currentSession) {
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        return;
+      }
+      if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      if (!state.currentSession.workspace_root) {
+        state.workspaceEntries = [];
+        state.workspaceTreeModel = null;
+        state.workspaceNodeIndex = new Map();
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        return;
+      }
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
+      state.workspaceEntries = payload.entries || [];
+      state.workspaceTreeModel = null;
+      state.workspaceNodeIndex = new Map();
+      renderWorkspaceMeta(payload.note || "");
+      renderWorkspaceTree();
+      if (!silent) setStatus("文件树已刷新。");
+    }
+
+    async function openFile(path, { forceReload = false, skipPersist = false, quiet = false } = {}) {
+      const normalizedPath = normPath(path);
+      const existing = getOpenFile(normalizedPath);
+      if (existing && !forceReload) {
+        activateFile(existing.path);
+        return;
+      }
+      if (existing?.dirty && forceReload && !window.confirm(`重新加载 ${existing.path} 会覆盖未保存修改。是否继续？`)) return;
+      if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file?path=${encodeURIComponent(normalizedPath)}`);
+      const revision = nextFileRevision();
+      upsertOpenFile({
+        path: payload.path,
+        name: baseName(payload.path),
+        content: payload.content,
+        originalContent: payload.content,
+        contentHash: payload.content_sha256,
+        dirty: false,
+        truncated: !!payload.truncated,
+        originalRevision: revision,
+        contentRevision: revision,
+        diffCacheKey: "",
+        diffCache: null
+      });
+      renderWorkspaceTree();
+      renderFileTabs();
+      renderEditor({ refreshSummary: true });
+      if (!quiet) {
+        setStatus(payload.truncated ? `已打开 ${payload.path}，但文件过大，当前只读。` : `已打开 ${payload.path}`);
+      }
+    }
+
+    async function reloadActiveFile() {
+      const file = getActiveFile();
+      if (!file) {
+        setStatus("请先打开文件。");
+        return;
+      }
+      await openFile(file.path, { forceReload: true });
+    }
+
+    async function saveActiveFile() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      const file = getActiveFile();
+      if (!file) {
+        setStatus("请先打开文件。");
+        return;
+      }
+      if (file.truncated) {
+        setStatus("当前文件过大，只读展示，无法直接保存。");
+        return;
+      }
+      await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      if (!state.currentSession?.settings?.allow_write) {
+        setStatus("请先开启“允许写盘”并保存设置。");
+        renderEditor();
+        return;
+      }
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file`, {
+        method: "PUT",
+        body: JSON.stringify({
+          path: file.path,
+          content: file.content,
+          expected_content_hash: file.contentHash || undefined
+        })
+      });
+      const revision = nextFileRevision();
+      upsertOpenFile({
+        ...file,
+        content: file.content,
+        originalContent: file.content,
+        contentHash: payload.content_sha256,
+        dirty: false,
+        truncated: false,
+        originalRevision: revision,
+        contentRevision: revision,
+        diffCacheKey: "",
+        diffCache: null
+      });
+      syncFileTabsState();
+      renderEditor({ refreshSummary: true });
+      await refreshWorkspaceTree({ skipPersist: true, silent: true });
+      setStatus(`已保存 ${payload.path}`);
+    }
+
+    function closeFileTab(path) {
+      const file = getOpenFile(path);
+      if (file?.dirty && !window.confirm(`关闭 ${file.path} 会丢失未保存修改。是否继续？`)) return;
+      state.openFiles = state.openFiles.filter(item => item.path !== path);
+      if (state.activeFilePath === path) state.activeFilePath = state.openFiles[0]?.path || "";
+      renderFileTabs();
+      syncWorkspaceSelection();
+      syncChangeSummarySelection();
+      renderEditor({ refreshSummary: true });
+    }
+
+    function appendPendingAssistant() {
+      state.pendingAssistantText = "";
+      state.pendingAssistantEl = document.createElement("div");
+      state.pendingAssistantEl.className = "message assistant loading";
+      state.pendingAssistantEl.textContent = "处理中...";
+      els.messages.appendChild(state.pendingAssistantEl);
+      els.messages.scrollTop = els.messages.scrollHeight;
+    }
+
+    function clearPendingAssistant() {
+      state.pendingAssistantText = "";
+      if (state.pendingAssistantEl) state.pendingAssistantEl.remove();
+      state.pendingAssistantEl = null;
+    }
+
+    function requestStopStream() {
+      if (!state.streamController) return;
+      state.streamStopRequested = true;
+      clearPendingAssistant();
+      if (state.currentSession) renderMessages(state.currentSession);
+      setStreamTerminalStatus("已取消");
+      state.streamController.abort();
+    }
+
+    function parseSseEventBlock(block) {
+      let eventName = "message";
+      const dataLines = [];
+      for (const raw of block.split("\n")) {
+        const line = raw.replace(/\r$/, "");
+        if (!line || line.startsWith(":")) continue;
+        if (line.startsWith("event:")) {
+          eventName = line.slice(6).trim() || "message";
+          continue;
+        }
+        if (line.startsWith("data:")) {
+          let value = line.slice(5);
+          if (value.startsWith(" ")) value = value.slice(1);
+          dataLines.push(value);
+        }
+      }
+      if (!dataLines.length) return null;
+      return { eventName, data: dataLines.join("\n") };
+    }
+
+    function drainSseBuffer(buffer, flush = false) {
+      let remaining = buffer.replace(/\r\n/g, "\n");
+      const blocks = [];
+      while (true) {
+        const boundary = remaining.indexOf("\n\n");
+        if (boundary === -1) break;
+        const block = remaining.slice(0, boundary);
+        remaining = remaining.slice(boundary + 2);
+        if (block.trim()) blocks.push(block);
+      }
+      if (flush && remaining.trim()) {
+        blocks.push(remaining);
+        remaining = "";
+      }
+      return { blocks, buffer: remaining };
+    }
+
+    function processSseEventBlock(block) {
+      const parsed = parseSseEventBlock(block);
+      if (!parsed) return;
+      let payload;
+      try {
+        payload = JSON.parse(parsed.data);
+      } catch {
+        throw new Error("流式事件解析失败。");
+      }
+      handleStreamEvent(parsed.eventName, payload);
+    }
+
+    function finalizeStream(fallbackStatus) {
+      const terminal = state.streamTerminalStatus || fallbackStatus || "";
+      clearPendingAssistant();
+      if (state.currentSession) renderMessages(state.currentSession);
+      state.streamController = null;
+      state.streamStopRequested = false;
+      state.streamTerminalStatus = "";
+      setStreamingControls(false);
+      renderEditor({ refreshSummary: false });
+      if (terminal) setStatus(terminal);
+    }
+
+    function handleStreamEvent(eventName, data) {
+      if (eventName === "session") {
+        state.currentSession = data;
+        persistActiveSessionId(state.currentSession.session_id);
+        upsertSessionSummary(state.currentSession);
+        applySessionToControls(state.currentSession);
+        renderMessages(state.currentSession);
+        renderTasks(state.currentSession.tasks);
+        renderTestSummary(state.currentSession.last_test_summary);
+        updateMeta();
+        renderSessions();
+        return;
+      }
+      if (eventName === "task_board") {
+        if (state.currentSession) state.currentSession.tasks = data;
+        renderTasks(data);
+        return;
+      }
+      if (eventName === "task_update") {
+        if (!state.currentSession) return;
+        const tasks = state.currentSession.tasks || [];
+        const id = data.task_id || data.id;
+        const next = tasks.map(task => (task.id === id ? { ...task, ...data, id: task.id } : task));
+        state.currentSession.tasks = next.some(task => task.id === id) ? next : [...next, data];
+        renderTasks(state.currentSession.tasks);
+        return;
+      }
+      if (eventName === "assistant_delta") {
+        state.pendingAssistantText += data.content || "";
+        if (state.pendingAssistantEl) {
+          state.pendingAssistantEl.classList.remove("loading");
+          state.pendingAssistantEl.textContent = state.pendingAssistantText;
+          els.messages.scrollTop = els.messages.scrollHeight;
+        }
+        return;
+      }
+      if (eventName === "assistant_final") {
+        if (state.pendingAssistantEl) {
+          state.pendingAssistantEl.classList.remove("loading");
+          state.pendingAssistantEl.textContent = data.content || state.pendingAssistantText;
+        }
+        return;
+      }
+      if (eventName === "test_summary") {
+        renderTestSummary(data);
+        return;
+      }
+      if (eventName === "error") {
+        clearPendingAssistant();
+        if (state.currentSession) renderMessages(state.currentSession);
+        setStreamTerminalStatus(data.message || "流式执行失败。");
+      }
+    }
+
+    async function sendMessage() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      if (!state.currentSession) {
+        setStatus("请先创建或选择会话。");
+        return;
+      }
+      const content = els.messageInput.value.trim();
+      if (!content) {
+        setStatus("请输入消息。");
+        return;
+      }
+      els.messageInput.value = "";
+      setStatus("保存设置并开始执行...");
+      try {
+        await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      } catch (error) {
+        setStatus(error.message || "设置保存失败。");
+        return;
+      }
+      setStatus("执行中...");
+      state.currentSession.messages = [...(state.currentSession.messages || []), { role: "user", content }];
+      renderMessages(state.currentSession);
+      appendPendingAssistant();
+      state.streamController = new AbortController();
+      state.streamStopRequested = false;
+      state.streamTerminalStatus = "";
+      setStreamingControls(true);
+      try {
+        const response = await fetch(`/sessions/${state.currentSession.session_id}/messages?stream=1`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ content }),
+          signal: state.streamController.signal
+        });
+        if (!response.ok || !response.body) throw new Error(`请求失败: ${response.status}`);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder("utf-8");
+        let buffer = "";
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const drained = drainSseBuffer(buffer);
+          buffer = drained.buffer;
+          for (const block of drained.blocks) processSseEventBlock(block);
+        }
+        buffer += decoder.decode();
+        const flushed = drainSseBuffer(buffer, true);
+        for (const block of flushed.blocks) processSseEventBlock(block);
+        finalizeStream("已完成。");
+      } catch (error) {
+        if (error.name === "AbortError") {
+          setStreamTerminalStatus(state.streamTerminalStatus || (state.streamStopRequested ? "已取消" : "流式已中断。"));
+        } else {
+          setStreamTerminalStatus(error.message || "发送失败。");
+        }
+        finalizeStream(state.streamTerminalStatus);
+      }
+    }
+
+    async function runTests() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      if (!state.currentSession) {
+        setStatus("请先选择会话。");
+        return;
+      }
+      setStatus("保存设置并运行测试...");
+      try {
+        await persistCurrentControls({ silent: true, refreshWorkspace: false });
+        const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/tests/run`, { method: "POST" });
+        state.currentSession = payload.session;
+        persistActiveSessionId(state.currentSession.session_id);
+        upsertSessionSummary(state.currentSession);
+        renderTestSummary(payload.summary);
+        renderMessages(state.currentSession);
+        renderTasks(state.currentSession.tasks);
+        updateMeta();
+        renderSessions();
+        setStatus("测试执行完成。");
+      } catch (error) {
+        setStatus(error.message || "测试执行失败。");
+      }
+    }
+
+    async function deleteSessionById(sessionId) {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      if (!sessionId) return;
+      if (state.currentSession?.session_id === sessionId) {
+        await deleteCurrentSession();
+        return;
+      }
+      const target = state.sessions.find(session => session.session_id === sessionId);
+      const title = target?.title || "该会话";
+      if (!window.confirm(`确认永久删除会话“${title}”？此操作无法恢复。`)) return;
+      await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
+      state.sessions = state.sessions.filter(session => session.session_id !== sessionId);
+      if (readActiveSessionId() === sessionId) persistActiveSessionId("");
+      renderSessions();
+      setStatus("会话已删除。");
+    }
+
+    async function deleteCurrentSession() {
+      if (state.streamController) {
+        setStatus("请先等待当前流式运行结束。");
+        return;
+      }
+      if (!state.currentSession) {
+        setStatus("请先选择会话。");
+        return;
+      }
+      if (hasDirtyOpenFiles() && !window.confirm("你有未保存的文件修改。删除会话后，这些改动不会被恢复。是否继续删除当前会话？")) return;
+      const sessionId = state.currentSession.session_id;
+      const title = state.currentSession.title || "当前会话";
+      const nextFilter = normPath(state.currentSession.workspace_root);
+      if (!window.confirm(`确认永久删除会话“${title}”？这会移除消息、任务、最近测试记录和当前会话设置，且无法恢复。`)) return;
+      try {
+        await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
+        state.sessions = state.sessions.filter(session => session.session_id !== sessionId);
+        persistActiveSessionId("");
+        state.currentSession = null;
+        clearPendingAssistant();
+        resetWorkspaceState();
+        renderSessions();
+        const nextSession = preferredSession(nextFilter);
+        if (nextSession) await loadSession(nextSession.session_id);
+        else {
+          renderMessages(null);
+          renderTasks([]);
+          renderTestSummary(null);
+          updateMeta();
+        }
+        setStatus("会话已删除。");
+      } catch (error) {
+        setStatus(error.message || "删除会话失败。");
+      }
+    }
+
+    function renderWorkspaceMeta(note = state.workspaceNote) {
+      if (!state.currentSession) {
+        els.workspaceMeta.textContent = "未选择会话";
+        return;
+      }
+      if (!state.currentSession.workspace_root) {
+        els.workspaceMeta.textContent = "当前会话未绑定工作区";
+        return;
+      }
+      const bits = ["资源管理器", `${state.workspaceEntries.length} 项`, "自动同步"];
+      const metaNote = formatWorkspaceNote(note);
+      if (metaNote) bits.push(metaNote);
+      els.workspaceMeta.textContent = bits.join(" · ");
+    }
+
+    function renderTreeName(node) {
+      if (node.is_dir) return `<span class="tree-name">${escapeHtml(node.name)}</span>`;
+      const parts = splitFileName(node.name);
+      if (!parts.ext) return `<span class="tree-name">${escapeHtml(node.name)}</span>`;
+      return `
+        <span class="tree-name">
+          <span class="tree-name-base">${escapeHtml(parts.base)}</span><span class="tree-name-ext">${escapeHtml(parts.ext)}</span>
+        </span>
+      `;
+    }
+
+    function renderTreeNodes(nodes) {
+      return nodes.map(node => {
+        const open = state.expanded[node.path] === true;
+        const active = !node.is_dir && state.activeFilePath === node.path ? "active" : "";
+        const actionAttr = node.is_dir
+          ? `data-tree-dir="${escapeHtml(node.path)}"`
+          : `data-tree-file="${escapeHtml(node.path)}"`;
+        const toggle = node.is_dir
+          ? `<button class="tree-toggle" type="button" data-tree-toggle="${escapeHtml(node.path)}" aria-label="${open ? "折叠目录" : "展开目录"}">${open ? "▾" : "▸"}</button>`
+          : '<span class="tree-spacer" aria-hidden="true"></span>';
+        const iconClass = node.is_dir
+          ? `tree-icon folder ${open ? "open" : ""}`
+          : `tree-icon file ${fileIconType(node.name)}`;
+        const childrenBody = open && node.children.length ? renderTreeNodes(node.children) : "";
+        return `
+          <div class="tree-node" data-tree-node="${escapeHtml(node.path)}" data-open="${open ? "true" : "false"}">
+            <div class="tree-row ${node.is_dir ? "directory" : "file"} ${active}" data-tree-row-path="${escapeHtml(node.path)}" style="padding-left:${Math.max(0, (node.depth - 1) * 10)}px">
+              ${toggle}
+              <button class="tree-action" type="button" ${actionAttr} title="${escapeHtml(node.path)}">
+                <span class="tree-main">
+                  <span class="${iconClass}" aria-hidden="true"></span>
+                  ${renderTreeName(node)}
+                </span>
+              </button>
+            </div>
+            <div class="tree-children" data-tree-children ${open ? "" : "hidden"}>${childrenBody}</div>
+          </div>
+        `;
+      }).join("");
+    }
+
+    function updateTreeNodeDom(path) {
+      const normalizedPath = normPath(path || TREE_ROOT_PATH) || TREE_ROOT_PATH;
+      const node = state.workspaceNodeIndex.get(normalizedPath);
+      if (!node) {
+        renderWorkspaceTree();
+        return;
+      }
+      const treeNode = els.workspaceTree.querySelector(`[data-tree-node="${escapeSelector(normalizedPath)}"]`);
+      if (!treeNode) {
+        renderWorkspaceTree();
+        return;
+      }
+      const open = state.expanded[normalizedPath] === true;
+      treeNode.dataset.open = open ? "true" : "false";
+      const toggle = treeNode.querySelector(`[data-tree-toggle="${escapeSelector(normalizedPath)}"]`) || treeNode.querySelector("[data-tree-toggle]");
+      if (toggle) {
+        toggle.textContent = open ? "▾" : "▸";
+        toggle.setAttribute("aria-label", open ? "折叠目录" : "展开目录");
+      }
+      const children = treeNode.querySelector("[data-tree-children]");
+      if (!children) return;
+      if (!open) {
+        children.hidden = true;
+        children.innerHTML = "";
+        return;
+      }
+      children.hidden = false;
+      children.innerHTML = node.children.length ? renderTreeNodes(node.children) : "";
+      syncWorkspaceSelection();
+    }
+
+    function renderWorkspaceTree() {
+      if (!state.currentSession) {
+        els.workspaceTree.innerHTML = '<div class="empty">先创建或选择会话。</div>';
+        return;
+      }
+      if (!state.currentSession.workspace_root) {
+        els.workspaceTree.innerHTML = '<div class="empty">当前会话没有工作区，无法浏览目录。</div>';
+        return;
+      }
+      const rootNode = getWorkspaceTreeModel();
+      els.workspaceTree.innerHTML = rootNode.children.length
+        ? renderTreeNodes(rootNode.children)
+        : '<div class="empty tree-empty">当前工作区暂无可显示文件。</div>';
+      syncWorkspaceSelection();
+    }
+
+    function syncFileTabsState() {
+      if (!state.openFiles.length) return;
+      const tabs = [...els.fileTabs.querySelectorAll("[data-tab]")];
+      if (tabs.length !== state.openFiles.length) {
+        renderFileTabs();
+        return;
+      }
+      let needsRerender = false;
+      tabs.forEach((element, index) => {
+        const file = state.openFiles[index];
+        if (!file || element.dataset.tab !== file.path) {
+          needsRerender = true;
+          return;
+        }
+        element.classList.toggle("active", file.path === state.activeFilePath);
+        element.classList.toggle("dirty", !!file.dirty);
+        element.classList.toggle("external", !!file.externalChanged && !file.dirty);
+        element.title = file.path;
+        const label = element.querySelector(".file-name");
+        if (label && label.textContent !== file.name) label.textContent = file.name;
+      });
+      if (needsRerender) renderFileTabs();
+    }
+
+    function renderFileTabs() {
+      if (!state.openFiles.length) {
+        els.fileTabs.innerHTML = '<div class="empty" style="padding:8px 10px">尚未打开文件</div>';
+        return;
+      }
+      els.fileTabs.innerHTML = state.openFiles.map(file => `
+        <div class="file-tab ${file.path === state.activeFilePath ? "active" : ""} ${file.dirty ? "dirty" : ""} ${file.externalChanged && !file.dirty ? "external" : ""}" data-tab="${escapeHtml(file.path)}" title="${escapeHtml(file.path)}">
+          <span class="file-name">${escapeHtml(file.name)}</span>
+          <button class="ghost file-tab-close" type="button" data-close="${escapeHtml(file.path)}" aria-label="关闭文件">x</button>
+        </div>
+      `).join("");
+    }
+
+    function renderEditor({ syncValue = true, refreshSummary = true } = {}) {
+      const file = getActiveFile();
+      if (!file) {
+        els.editorTitle.textContent = "代码编辑器";
+        els.editorMeta.textContent = "文件树、标签和会话区域可独立折叠，代码区优先保证可视面积。";
+        els.editorStatus.textContent = "尚未打开文件";
+        els.editorEmpty.hidden = false;
+        els.editorTextarea.hidden = true;
+        if (syncValue) els.editorTextarea.value = "";
+        els.editorTextarea.disabled = true;
+        els.reloadFileBtn.disabled = true;
+        els.saveFileBtn.disabled = true;
+        if (refreshSummary) scheduleChangeSummaryRender({ immediate: true });
+        return;
+      }
+
+      const tabIndex = Math.max(0, state.openFiles.findIndex(item => item.path === file.path)) + 1;
+      const modeLabel = state.currentSession?.workspace_root ? "工作区模式" : "问答模式";
+      const bits = [`标签 ${tabIndex}/${state.openFiles.length}`];
+      if (file.contentHash) bits.push(`校验 ${file.contentHash.slice(0, 12)}`);
+      if (file.truncated) bits.push("文件过大，只读显示");
+      else if (file.missingOnDisk && file.dirty) bits.push("磁盘文件已删除，保留当前未保存内容");
+      else if (file.missingOnDisk) bits.push("磁盘文件已删除");
+      else if (file.externalChanged && file.dirty) bits.push("磁盘版本已变化，未覆盖本地修改");
+      else if (file.externalChanged) bits.push("磁盘版本已变化");
+      else if (!state.currentSession?.settings?.allow_write) bits.push("当前会话未开启写权限");
+      else if (file.dirty) bits.push("存在未保存修改");
+      else bits.push("已与磁盘同步");
+      if (state.streamController) bits.push("助手执行中");
+
+      els.editorTitle.textContent = "代码编辑器";
+      els.editorMeta.textContent = `已打开 ${state.openFiles.length} 个标签 | ${modeLabel}`;
+      els.editorStatus.textContent = bits.join(" | ");
+      els.editorEmpty.hidden = true;
+      els.editorTextarea.hidden = false;
+      if (syncValue && els.editorTextarea.value !== file.content) els.editorTextarea.value = file.content;
+      els.editorTextarea.disabled = !canEditActiveFile();
+      els.reloadFileBtn.disabled = !!state.streamController || file.missingOnDisk;
+      els.saveFileBtn.disabled = !canSaveActiveFile();
+      if (refreshSummary) scheduleChangeSummaryRender({ immediate: true });
+    }
+
+    async function refreshWorkspaceTree({ skipPersist = false, silent = false } = {}) {
+      if (!state.currentSession) {
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        return false;
+      }
+      if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      if (!state.currentSession.workspace_root) {
+        state.workspaceEntries = [];
+        state.workspaceEntryIndex = new Map();
+        state.workspaceSnapshotKey = "";
+        state.workspaceNote = "";
+        state.workspaceTreeModel = null;
+        state.workspaceNodeIndex = new Map();
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        renderFileTabs();
+        renderEditor({ refreshSummary: false });
+        return false;
+      }
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
+      const changed = applyWorkspaceTreePayload(payload);
+      await syncActiveFileFromWorkspace({ quiet: true });
+      renderWorkspaceMeta();
+      renderWorkspaceTree();
+      renderFileTabs();
+      renderEditor({ refreshSummary: false });
+      if (!silent) setStatus(changed ? "工作区已更新。" : "工作区已同步。");
+      return changed;
+    }
+
+    async function openFile(path, { forceReload = false, skipPersist = false, quiet = false } = {}) {
+      const normalizedPath = normPath(path);
+      const existing = getOpenFile(normalizedPath);
+      if (existing && !forceReload) {
+        activateFile(existing.path);
+        return existing;
+      }
+      if (existing?.dirty && forceReload && !window.confirm(`重新加载 ${existing.path} 会覆盖未保存修改。是否继续？`)) return existing;
+      if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file?path=${encodeURIComponent(normalizedPath)}`);
+      const revision = nextFileRevision();
+      const entry = getWorkspaceEntry(payload.path) || getWorkspaceEntry(normalizedPath);
+      upsertOpenFile({
+        path: payload.path,
+        name: baseName(payload.path),
+        content: payload.content,
+        originalContent: payload.content,
+        contentHash: payload.content_sha256,
+        dirty: false,
+        truncated: !!payload.truncated,
+        modifiedNs: entry?.modified_ns ?? null,
+        sizeBytes: entry?.size_bytes ?? null,
+        externalChanged: false,
+        missingOnDisk: false,
+        originalRevision: revision,
+        contentRevision: revision,
+        diffCacheKey: "",
+        diffCache: null
+      });
+      renderWorkspaceTree();
+      renderFileTabs();
+      renderEditor({ refreshSummary: true });
+      if (!quiet) {
+        setStatus(payload.truncated ? `已打开 ${payload.path}，但文件过大，当前只读。` : `已打开 ${payload.path}`);
+      }
+      return getOpenFile(payload.path);
+    }
+
+    async function reloadActiveFile() {
+      const file = getActiveFile();
+      if (!file) {
+        setStatus("请先打开文件。");
+        return;
+      }
+      if (file.missingOnDisk) {
+        setStatus("当前文件已不在工作区中，无法重新加载。");
+        return;
+      }
+      await openFile(file.path, { forceReload: true });
+    }
+
+    async function saveActiveFile() {
+      if (state.streamController) {
+        setStatus("请等待当前流式运行结束。");
+        return;
+      }
+      const file = getActiveFile();
+      if (!file) {
+        setStatus("请先打开文件。");
+        return;
+      }
+      if (file.truncated) {
+        setStatus("当前文件过大，只读显示，无法直接保存。");
+        return;
+      }
+      await persistCurrentControls({ silent: true, refreshWorkspace: false });
+      if (!state.currentSession?.settings?.allow_write) {
+        setStatus("请先开启“允许写盘”并保存设置。");
+        renderEditor({ refreshSummary: false });
+        return;
+      }
+      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file`, {
+        method: "PUT",
+        body: JSON.stringify({
+          path: file.path,
+          content: file.content,
+          expected_content_hash: file.contentHash || undefined
+        })
+      });
+      const revision = nextFileRevision();
+      upsertOpenFile({
+        ...file,
+        content: file.content,
+        originalContent: file.content,
+        contentHash: payload.content_sha256,
+        dirty: false,
+        truncated: false,
+        externalChanged: false,
+        missingOnDisk: false,
+        originalRevision: revision,
+        contentRevision: revision,
+        diffCacheKey: "",
+        diffCache: null
+      });
+      await refreshWorkspaceTree({ skipPersist: true, silent: true });
+      syncFileTabsState();
+      renderEditor({ refreshSummary: true });
+      setStatus(`已保存 ${payload.path}`);
+    }
+
+    async function syncActiveFileFromWorkspace({ quiet = false } = {}) {
+      const file = getActiveFile();
+      if (!file) return false;
+      const entry = getWorkspaceEntry(file.path);
+      if (!entry) {
+        upsertOpenFile({
+          ...file,
+          modifiedNs: null,
+          sizeBytes: null,
+          missingOnDisk: true,
+          externalChanged: true
+        });
+        syncFileTabsState();
+        renderEditor({ refreshSummary: false });
+        if (!quiet) setStatus(`检测到 ${file.path} 已从工作区移除。`);
+        return false;
+      }
+      if (!hasWorkspaceEntryChanged(file, entry)) return false;
+      if (file.dirty) {
+        upsertOpenFile({
+          ...file,
+          modifiedNs: entry.modified_ns ?? null,
+          sizeBytes: entry.size_bytes ?? null,
+          missingOnDisk: false,
+          externalChanged: true
+        });
+        syncFileTabsState();
+        renderEditor({ refreshSummary: false });
+        if (!quiet) setStatus(`检测到 ${file.path} 在磁盘上已更新，未覆盖当前未保存修改。`);
+        return false;
+      }
+      await openFile(file.path, { forceReload: true, skipPersist: true, quiet: true });
+      if (!quiet) setStatus(`检测到 ${file.path} 已更新，已自动同步到编辑器。`);
+      return true;
+    }
+
+    async function syncWorkspaceIfChanged({ silent = true } = {}) {
+      if (workspaceSyncInFlight || !state.currentSession?.workspace_root || document.hidden) return false;
+      workspaceSyncInFlight = true;
+      try {
+        const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
+        const nextEntries = Array.isArray(payload?.entries) ? payload.entries : [];
+        const nextNote = String(payload?.note || "");
+        const nextSnapshotKey = workspaceSnapshotKey(nextEntries);
+        if (state.workspaceSnapshotKey === nextSnapshotKey && state.workspaceNote === nextNote) return false;
+        applyWorkspaceTreePayload(payload);
+        const reloaded = await syncActiveFileFromWorkspace({ quiet: true });
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        renderFileTabs();
+        renderEditor({ refreshSummary: false });
+        if (!silent) {
+          setStatus(reloaded ? "检测到工作区改动，已自动更新文件和目录。" : "检测到工作区改动，已自动更新目录。");
+        }
+        return true;
+      } catch (error) {
+        if (!silent) setStatus(error.message || "工作区自动同步失败。");
+        return false;
+      } finally {
+        workspaceSyncInFlight = false;
+      }
+    }
+
+    function stopWorkspaceAutoSync() {
+      if (!workspaceSyncTimer) return;
+      window.clearInterval(workspaceSyncTimer);
+      workspaceSyncTimer = null;
+    }
+
+    function startWorkspaceAutoSync() {
+      stopWorkspaceAutoSync();
+      workspaceSyncTimer = window.setInterval(() => {
+        syncWorkspaceIfChanged().catch(() => {});
+      }, WORKSPACE_AUTO_SYNC_MS);
+    }
+
+    function finalizeStream(fallbackStatus) {
+      const terminal = state.streamTerminalStatus || fallbackStatus || "";
+      clearPendingAssistant();
+      if (state.currentSession) renderMessages(state.currentSession);
+      state.streamController = null;
+      state.streamStopRequested = false;
+      state.streamTerminalStatus = "";
+      setStreamingControls(false);
+      syncWorkspaceIfChanged({ silent: true }).catch(() => {});
+      renderEditor({ refreshSummary: false });
+      if (terminal) setStatus(terminal);
+    }
+
+    els.editorTextarea.addEventListener("input", () => {
+      const file = getActiveFile();
+      if (!file) return;
+      const nextContent = els.editorTextarea.value;
+      if (file.content === nextContent) return;
+      file.content = nextContent;
+      file.dirty = file.content !== file.originalContent;
+      file.contentRevision = nextFileRevision();
+      syncFileTabsState();
+      renderEditor({ syncValue: false, refreshSummary: false });
+      scheduleChangeSummaryRender();
+    });
+    els.maxTurnsInput.addEventListener("change", () => {
+      els.maxTurnsInput.value = normalizeMaxTurns(els.maxTurnsInput.value);
+    });
+    els.workspaceInput.addEventListener("input", () => renderSessions());
+    els.sessionSearchInput.addEventListener("input", () => {
+      state.sessionSearchQuery = els.sessionSearchInput.value || "";
+      renderSessions();
+    });
+    els.toggleArchivedBtn.addEventListener("click", () => {
+      state.archivedExpanded = !state.archivedExpanded;
+      renderSessions();
+    });
+    els.messageInput.addEventListener("keydown", event => {
+      if (event.key !== "Enter" || event.shiftKey || event.isComposing) return;
+      event.preventDefault();
+      sendMessage();
+    });
+    els.newSessionBtn.addEventListener("click", () => createSession().catch(error => setStatus(error.message)));
+    els.openFolderBtn.addEventListener("click", () => pickLocalPath("folder"));
+    els.openFileBtn.addEventListener("click", () => pickLocalPath("file"));
+    els.saveSettingsBtn.addEventListener("click", () => persistCurrentControls({ refreshWorkspace: true }).catch(error => setStatus(error.message)));
+    els.deleteSessionBtn?.addEventListener("click", () => deleteCurrentSession());
+    els.toolbarMoreMenu?.addEventListener("click", event => {
+      const target = event.target.closest("[data-drawer-target]");
+      if (!target) return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggleContextDrawer(target.dataset.drawerTarget);
+    });
+    els.closeDrawerBtn.addEventListener("click", () => {
+      state.drawerOpen = false;
+      renderContextDrawer();
+    });
+    els.workspaceTree.addEventListener("click", event => {
+      const toggle = event.target.closest("[data-tree-toggle]");
+      if (toggle) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleTreeNode(toggle.dataset.treeToggle);
+        return;
+      }
+      const dirTarget = event.target.closest("[data-tree-dir]");
+      if (dirTarget) {
+        toggleTreeNode(dirTarget.dataset.treeDir);
+        return;
+      }
+      const fileTarget = event.target.closest("[data-tree-file]");
+      if (fileTarget) openFile(fileTarget.dataset.treeFile).catch(error => setStatus(error.message));
+    });
+    els.fileTabs.addEventListener("click", event => {
+      const closeTarget = event.target.closest("[data-close]");
+      if (closeTarget) {
+        event.stopPropagation();
+        closeFileTab(closeTarget.dataset.close);
+        return;
+      }
+      const tabTarget = event.target.closest("[data-tab]");
+      if (tabTarget) activateFile(tabTarget.dataset.tab);
+    });
+    els.changeSummaryList.addEventListener("click", event => {
+      const target = event.target.closest("[data-change-file]");
+      if (!target) return;
+      openFile(target.dataset.changeFile, { quiet: true })
+        .then(() => {
+          focusEditorAtLine(Number(target.dataset.changeLine || 1));
+          setStatus(`已打开 ${target.dataset.changeFile}`);
+        })
+        .catch(error => setStatus(error.message || "打开修改文件失败。"));
+    });
+    els.sendBtn.addEventListener("click", () => {
+      if (state.streamController) {
+        requestStopStream();
+        return;
+      }
+      sendMessage();
+    });
+    els.runTestsBtn.addEventListener("click", () => runTests());
+    els.refreshTreeBtn?.addEventListener("click", () => refreshWorkspaceTree().catch(error => setStatus(error.message)));
+    els.reloadFileBtn.addEventListener("click", () => reloadActiveFile().catch(error => setStatus(error.message)));
+    els.saveFileBtn.addEventListener("click", () => saveActiveFile().catch(error => setStatus(error.message)));
+    els.stopBtn.addEventListener("click", requestStopStream);
+    els.sidebarResizeHandle?.addEventListener("pointerdown", startSidebarResize);
+    els.toggleLeftSidebarBtn.addEventListener("click", toggleLeftSidebar);
+    els.toggleRightSidebarBtn.addEventListener("click", toggleRightSidebar);
+    els.assistantPanelResizeHandle?.addEventListener("pointerdown", startAssistantPanelResize);
+    els.assistantResizeHandle.addEventListener("pointerdown", startAssistantResize);
+
+    document.addEventListener("click", event => {
+      if (!els.toolbarMoreMenu) return;
+      if (!els.toolbarMoreMenu.contains(event.target)) els.toolbarMoreMenu.open = false;
+      document.querySelectorAll("[data-session-menu][open]").forEach(menu => {
+        if (!menu.contains(event.target)) menu.open = false;
+      });
+    });
+    document.addEventListener("keydown", event => {
+      if (event.key === "Escape" && els.toolbarMoreMenu) els.toolbarMoreMenu.open = false;
+      if (event.key === "Escape") {
+        document.querySelectorAll("[data-session-menu][open]").forEach(menu => {
+          menu.open = false;
+        });
+      }
+    });
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) return;
+      syncWorkspaceIfChanged({ silent: true }).catch(() => {});
+    });
+    window.addEventListener("focus", () => {
+      syncWorkspaceIfChanged({ silent: true }).catch(() => {});
+    });
+    window.addEventListener("resize", applyLayoutState);
+
+    readLayoutState();
+    applyLayoutState();
+    renderContextDrawer();
+    setStreamingControls(false);
+    startWorkspaceAutoSync();
+    renderWorkspaceMeta();
+    renderWorkspaceTree();
+    renderFileTabs();
+    renderEditor();
+
+    Promise.allSettled([
+      refreshSessions(),
+      fetchJson("/eval/latest").then(renderEval)
+    ]).then(async results => {
+      const [sessionsResult, evalResult] = results;
+      if (sessionsResult.status === "rejected") throw sessionsResult.reason;
+      if (evalResult.status === "rejected") renderEval(null);
+      const nextSession = preferredSession();
+      if (nextSession) await loadSession(nextSession.session_id);
+      else updateMeta();
+    }).catch(error => setStatus(error.message));

@@ -11,6 +11,7 @@ from typing import Any
 from app.utils.env_loader import load_env_file
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import iterate_in_threadpool
 import uvicorn
 
@@ -31,6 +32,7 @@ from app.web.schemas import (
 from app.web.service import WebAgentService
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates"
+STATIC_DIR = Path(__file__).resolve().parent / "static"
 
 
 def _dump_model(model: Any) -> dict[str, Any]:
@@ -59,6 +61,7 @@ async def _app_lifespan(app: FastAPI):
 def create_app(service: WebAgentService | None = None) -> FastAPI:
     app = FastAPI(title="CodeInsight-Agent Web", version="1.0.0", lifespan=_app_lifespan)
     app.state.service = service or WebAgentService()
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:

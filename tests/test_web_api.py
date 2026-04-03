@@ -130,6 +130,23 @@ def test_web_api_can_create_session_without_workspace(tmp_path: Path) -> None:
     assert created.json()["workspace_root"] == ""
 
 
+def test_web_index_serves_external_assets(tmp_path: Path) -> None:
+    client, _store = _client(tmp_path)
+
+    html = client.get("/")
+    assert html.status_code == 200
+    assert '/static/web/index.css' in html.text
+    assert '/static/web/index.js' in html.text
+
+    stylesheet = client.get("/static/web/index.css")
+    assert stylesheet.status_code == 200
+    assert ".layout{" in stylesheet.text
+
+    script = client.get("/static/web/index.js")
+    assert script.status_code == 200
+    assert "ACTIVE_SESSION_STORAGE_KEY" in script.text
+
+
 def test_web_api_pick_folder_returns_workspace_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
