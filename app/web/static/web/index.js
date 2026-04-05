@@ -834,7 +834,17 @@
     }
 
     function isBusy() {
-      return !!state.streamController;
+      if (!state.streamController) return false;
+      if (state.streamController?.signal?.aborted) {
+        state.streamController = null;
+        state.streamStopRequested = false;
+        state.streamTerminalStatus = "";
+        clearPendingAssistant();
+        setStreamingControls(false);
+        renderEditor({ refreshSummary: false });
+        return false;
+      }
+      return true;
     }
 
     function ensureNotBusy() {
@@ -1580,10 +1590,7 @@
     }
 
     async function updateSessionAttrs(sessionId, payload) {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return null;
-      }
+      if (ensureNotBusy()) return null;
       const updated = await fetchJson(`${API_ROUTES.sessions}/${sessionId}`, {
         method: "PATCH",
         body: JSON.stringify(payload)
@@ -1603,10 +1610,7 @@
     }
 
     async function loadSession(id) {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return;
-      }
+      if (ensureNotBusy()) return;
       if (state.currentSession?.session_id === id) return;
       if (hasDirtyOpenFiles() && !window.confirm("切换会话会丢失未保存的文件修改。是否继续？")) return;
       state.currentSession = await fetchJson(`${API_ROUTES.sessions}/${id}`);
@@ -1623,10 +1627,7 @@
     }
 
     async function createSession() {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return;
-      }
+      if (ensureNotBusy()) return;
       const session = await fetchJson(API_ROUTES.sessions, {
         method: "POST",
         body: JSON.stringify({
@@ -1688,10 +1689,7 @@
     }
 
     async function pickLocalPath(kind) {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return;
-      }
+      if (ensureNotBusy()) return;
       const isFile = kind === "file";
       const endpoint = isFile ? API_ROUTES.pickFile : API_ROUTES.pickFolder;
       try {
@@ -1792,10 +1790,7 @@
     }
 
     async function saveActiveFile() {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return;
-      }
+      if (ensureNotBusy()) return;
       const file = getActiveFile();
       if (!file) {
         setStatus("请先打开文件。");
@@ -1922,18 +1917,6 @@
       handleStreamEvent(parsed.eventName, payload);
     }
 
-    function finalizeStream(fallbackStatus) {
-      const terminal = state.streamTerminalStatus || fallbackStatus || "";
-      clearPendingAssistant();
-      if (state.currentSession) renderMessages(state.currentSession);
-      state.streamController = null;
-      state.streamStopRequested = false;
-      state.streamTerminalStatus = "";
-      setStreamingControls(false);
-      renderEditor({ refreshSummary: false });
-      if (terminal) setStatus(terminal);
-    }
-
     function handleStreamEvent(eventName, data) {
       if (eventName === SSE_EVENTS.streamProfile) {
         if (data?.kind === "phased") setStatus("闃舵娴佽繑鍥炰腑...");
@@ -1993,10 +1976,7 @@
     }
 
     async function sendMessage() {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return;
-      }
+      if (ensureNotBusy()) return;
       if (!state.currentSession) {
         setStatus("请先创建或选择会话。");
         return;
@@ -2056,10 +2036,7 @@
     }
 
     async function runTests() {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return;
-      }
+      if (ensureNotBusy()) return;
       if (!state.currentSession) {
         setStatus("请先选择会话。");
         return;
@@ -2083,10 +2060,7 @@
     }
 
     async function deleteSessionById(sessionId) {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return;
-      }
+      if (ensureNotBusy()) return;
       if (!sessionId) return;
       if (state.currentSession?.session_id === sessionId) {
         await deleteCurrentSession();
@@ -2103,10 +2077,7 @@
     }
 
     async function deleteCurrentSession() {
-      if (state.streamController) {
-        setStatus("请先等待当前流式运行结束。");
-        return;
-      }
+      if (ensureNotBusy()) return;
       if (!state.currentSession) {
         setStatus("请先选择会话。");
         return;

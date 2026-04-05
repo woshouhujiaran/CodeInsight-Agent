@@ -25,7 +25,10 @@ def test_index_template_includes_stream_cancel_and_multiline_sse_guards() -> Non
     assert "const SSE_EVENTS = Object.freeze(" in script
     assert "const API_ROUTES = Object.freeze(" in script
     assert "function ensureNotBusy()" in script
+    assert 'if (state.streamController?.signal?.aborted) {' in script
     assert 'if (options.body != null && !headers.has("Content-Type")) {' in script
+    assert 'async function createSession() {' in script
+    assert 'if (ensureNotBusy()) return;' in script
     assert 'dataLines.join("\\n")' in script
     assert 'setStreamTerminalStatus("已取消")' in script
     assert 'sendBtnEl.textContent = busy ? "停止 Stop" : "发送";' in script
@@ -33,6 +36,7 @@ def test_index_template_includes_stream_cancel_and_multiline_sse_guards() -> Non
     assert "saveSettingsBtnEl.disabled = busy;" in script
     assert 'if (eventName === SSE_EVENTS.error)' in script
     assert "scheduleChangeSummaryRender();" in script
+    assert script.count("function finalizeStream(fallbackStatus)") == 1
 
 
 def test_index_template_includes_workspace_editor_shell() -> None:
