@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+import json
 from pathlib import Path
 from typing import Any, Callable, Iterator
 
@@ -52,6 +53,12 @@ class WebAgentService:
             session_store=self.session_store,
             require_workspace_root=self._require_workspace_root,
         )
+        self._latest_eval_cache: dict[str, Any] = {
+            "dir_mtime_ns": None,
+            "path": None,
+            "file_mtime_ns": None,
+            "payload": None,
+        }
 
     def resolve_workspace_root(self, raw_path: str | None, *, required: bool = True) -> str:
         text = str(raw_path or "").strip()
@@ -153,7 +160,8 @@ class WebAgentService:
         *,
         path: str = ".",
         depth: int = 4,
-        max_entries: int = 1_000,
+        max_entries: int = 400,
+        include_metadata: bool = False,
     ) -> dict[str, Any]:
         snapshot = self.session_store.get_session(session_id)
         workspace_root = self._require_workspace_root(snapshot)
@@ -167,16 +175,18 @@ class WebAgentService:
         for rel_path in payload.get("paths") or []:
             absolute = (root_path / str(rel_path)).resolve()
             stat = None
-            try:
-                stat = absolute.stat()
-            except OSError:
-                stat = None
+            is_dir = absolute.is_dir()
+            if include_metadata:
+                try:
+                    stat = absolute.stat()
+                except OSError:
+                    stat = None
             entries.append(
                 {
                     "path": str(rel_path),
                     "name": Path(str(rel_path)).name or str(rel_path),
-                    "is_dir": absolute.is_dir(),
-                    "size_bytes": None if absolute.is_dir() else int(stat.st_size) if stat else None,
+                    "is_dir": is_dir,
+                    "size_bytes": None if is_dir else int(stat.st_size) if stat else None,
                     "modified_ns": int(stat.st_mtime_ns) if stat else None,
                 }
             )
@@ -246,17 +256,45 @@ class WebAgentService:
     def get_latest_eval_result(self) -> dict[str, Any]:
         preferred = self.outputs_dir / "eval_result.json"
         candidate = preferred if preferred.is_file() else None
+        dir_mtime_ns = None
         if candidate is None:
+            try:
+                dir_mtime_ns = self.outputs_dir.stat().st_mtime_ns
+            except OSError:
+                dir_mtime_ns = None
+            if (
+                self._latest_eval_cache.get("dir_mtime_ns") == dir_mtime_ns
+                and self._latest_eval_cache.get("path") is not None
+            ):
+                return {
+                    "path": self._latest_eval_cache["path"],
+                    "payload": deepcopy(self._latest_eval_cache["payload"]),
+                }
             json_files = sorted(self.outputs_dir.glob("*.json"), key=lambda item: item.stat().st_mtime, reverse=True)
             candidate = json_files[0] if json_files else None
         if candidate is None:
             return {"path": None, "payload": None}
 
-        import json
+        try:
+            file_mtime_ns = candidate.stat().st_mtime_ns
+        except OSError:
+            return {"path": None, "payload": None}
+        candidate_path = str(candidate.resolve())
+        if (
+            self._latest_eval_cache.get("path") == candidate_path
+            and self._latest_eval_cache.get("file_mtime_ns") == file_mtime_ns
+        ):
+            return {"path": candidate_path, "payload": deepcopy(self._latest_eval_cache["payload"])}
 
         with candidate.open("r", encoding="utf-8") as handle:
             payload = json.load(handle)
-        return {"path": str(candidate.resolve()), "payload": payload}
+        self._latest_eval_cache = {
+            "dir_mtime_ns": dir_mtime_ns,
+            "path": candidate_path,
+            "file_mtime_ns": file_mtime_ns,
+            "payload": payload,
+        }
+        return {"path": candidate_path, "payload": deepcopy(payload)}
 
     def pick_local_path(self, selection: str) -> dict[str, Any]:
         picker = str(selection or "").strip().lower()
@@ -311,6 +349,7 @@ class WebAgentService:
         if not user_content:
             raise ValueError("消息内容不能为空。")
 
+        emit({"event": "stream_profile", "data": {"kind": "phased"}})
         safety_refusal = self.safety_guard.review(user_content)
         mode = "qa" if safety_refusal is not None else self.mode_decider.infer(user_content)
         clarification_prompt = None

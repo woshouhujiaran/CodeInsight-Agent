@@ -260,7 +260,8 @@ def test_web_api_workspace_tree_and_file_read(tmp_path: Path) -> None:
     pkg_dir = workspace / "pkg"
     pkg_dir.mkdir(parents=True)
     (workspace / "README.md").write_text("# demo\n", encoding="utf-8")
-    (pkg_dir / "mod.py").write_text("value = 1\n", encoding="utf-8")
+    target = pkg_dir / "mod.py"
+    target.write_text("value = 1\n", encoding="utf-8")
 
     client, _store = _client(tmp_path)
     created = client.post(
@@ -275,6 +276,16 @@ def test_web_api_workspace_tree_and_file_read(tmp_path: Path) -> None:
     assert entries["pkg"]["is_dir"] is True
     assert entries["pkg/mod.py"]["is_dir"] is False
     assert entries["README.md"]["name"] == "README.md"
+    assert entries["pkg/mod.py"]["size_bytes"] is None
+
+    tree_with_metadata = client.get(
+        f"/sessions/{session_id}/workspace/tree",
+        params={"include_metadata": True},
+    )
+    assert tree_with_metadata.status_code == 200
+    detailed_entries = {item["path"]: item for item in tree_with_metadata.json()["entries"]}
+    assert detailed_entries["pkg/mod.py"]["size_bytes"] == target.stat().st_size
+    assert detailed_entries["pkg/mod.py"]["modified_ns"] is not None
 
     file_response = client.get(
         f"/sessions/{session_id}/workspace/file",
@@ -375,6 +386,8 @@ def test_web_api_sse_stream_emits_task_board_and_final(tmp_path: Path) -> None:
         assert response.status_code == 200
         text = "".join(chunk for chunk in response.iter_text())
 
+    assert "event: stream_profile" in text
+    assert '"kind": "phased"' in text
     assert "event: task_board" in text
     assert "event: assistant_final" in text
 

@@ -118,6 +118,7 @@ class SessionSnapshotModel(_ExtraAllowModel):
 
 
 ServiceEventName = Literal[
+    "stream_profile",
     "mode",
     "session",
     "task_board",

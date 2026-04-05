@@ -172,7 +172,8 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
         session_id: str,
         path: str = Query(default="."),
         depth: int = Query(default=4, ge=1, le=8),
-        max_entries: int = Query(default=1000, ge=1, le=5000),
+        max_entries: int = Query(default=400, ge=1, le=5000),
+        include_metadata: bool = Query(default=False),
     ) -> dict[str, Any]:
         try:
             return app.state.service.list_workspace_tree(
@@ -180,6 +181,7 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
                 path=path,
                 depth=depth,
                 max_entries=max_entries,
+                include_metadata=include_metadata,
             )
         except KeyError as exc:
             raise HTTPException(status_code=404, detail="会话不存在。") from exc

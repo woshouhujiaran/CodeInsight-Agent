@@ -162,8 +162,61 @@ def test_web_service_qa_emits_single_full_delta(tmp_path: Path) -> None:
 
     result = service.chat(session["session_id"], "解释一下二分查找")
 
+    assert result["events"][0] == {"event": "stream_profile", "data": {"kind": "phased"}}
     deltas = [event for event in result["events"] if event["event"] == "assistant_delta"]
     assert deltas == [{"event": "assistant_delta", "data": {"content": fake_llm.answer}}]
+
+
+def test_web_service_workspace_tree_skips_metadata_by_default(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "mod.py"
+    target.write_text("value = 1\n", encoding="utf-8")
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(workspace))
+    service = WebAgentService(session_store=store, repo_root=tmp_path)
+
+    payload = service.list_workspace_tree(session["session_id"])
+
+    entry = next(item for item in payload["entries"] if item["path"] == "mod.py")
+    assert entry["is_dir"] is False
+    assert entry["size_bytes"] is None
+    assert entry["modified_ns"] is None
+
+
+def test_web_service_workspace_tree_can_include_metadata(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    target = workspace / "mod.py"
+    target.write_text("value = 1\n", encoding="utf-8")
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(workspace))
+    service = WebAgentService(session_store=store, repo_root=tmp_path)
+
+    payload = service.list_workspace_tree(session["session_id"], include_metadata=True)
+
+    entry = next(item for item in payload["entries"] if item["path"] == "mod.py")
+    assert entry["size_bytes"] == target.stat().st_size
+    assert entry["modified_ns"] is not None
+
+
+def test_web_service_prefers_fixed_eval_result_file(tmp_path: Path) -> None:
+    outputs_dir = tmp_path / "outputs"
+    outputs_dir.mkdir()
+    preferred = outputs_dir / "eval_result.json"
+    alternate = outputs_dir / "zzz.json"
+    preferred.write_text('{"summary":{"success_rate":0.5}}', encoding="utf-8")
+    alternate.write_text('{"summary":{"success_rate":0.9}}', encoding="utf-8")
+    service = WebAgentService(
+        session_store=SessionStore(tmp_path / "sessions"),
+        repo_root=tmp_path,
+        outputs_dir=outputs_dir,
+    )
+
+    payload = service.get_latest_eval_result()
+
+    assert payload["path"] == str(preferred.resolve())
+    assert payload["payload"]["summary"]["success_rate"] == 0.5
 
 
 def test_turn_mode_decider_prefers_qa_for_general_questions_and_clarifications() -> None:
@@ -478,6 +531,7 @@ def test_web_service_stream_close_cancels_background_turn(tmp_path: Path) -> Non
     service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
 
     events = service.stream_chat(session["session_id"], "在这个项目里修复登录 bug")
+    assert next(events) == {"event": "stream_profile", "data": {"kind": "phased"}}
     assert next(events)["event"] == "mode"
     assert next(events)["event"] == "session"
     assert next(events)["event"] == "task_board"
