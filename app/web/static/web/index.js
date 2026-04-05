@@ -2124,6 +2124,20 @@
       els.workspaceMeta.textContent = bits.join(" · ");
     }
 
+    function markWorkspaceUnavailable(message) {
+      state.workspaceEntries = [];
+      state.workspaceEntryIndex = new Map();
+      state.workspaceSnapshotKey = "";
+      state.workspaceNote = String(message || "");
+      state.workspaceTreeModel = null;
+      state.workspaceNodeIndex = new Map();
+      syncOpenFilesFromWorkspace();
+      renderWorkspaceMeta(state.workspaceNote);
+      renderWorkspaceTree();
+      renderFileTabs();
+      renderEditor({ refreshSummary: false });
+    }
+
     function renderTreeName(node) {
       if (node.is_dir) return `<span class="tree-name">${escapeHtml(node.name)}</span>`;
       const parts = splitFileName(node.name);
@@ -2312,15 +2326,22 @@
         renderEditor({ refreshSummary: false });
         return false;
       }
-      const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/tree?${WORKSPACE_TREE_QUERY}`);
-      const changed = applyWorkspaceTreePayload(payload);
-      await syncActiveFileFromWorkspace({ quiet: true });
-      renderWorkspaceMeta();
-      renderWorkspaceTree();
-      renderFileTabs();
-      renderEditor({ refreshSummary: false });
-      if (!silent) setStatus(changed ? "工作区已更新。" : "工作区已同步。");
-      return changed;
+      try {
+        const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/tree?${WORKSPACE_TREE_QUERY}`);
+        const changed = applyWorkspaceTreePayload(payload);
+        await syncActiveFileFromWorkspace({ quiet: true });
+        renderWorkspaceMeta();
+        renderWorkspaceTree();
+        renderFileTabs();
+        renderEditor({ refreshSummary: false });
+        if (!silent) setStatus(changed ? "工作区已更新。" : "工作区已同步。");
+        return changed;
+      } catch (error) {
+        markWorkspaceUnavailable(error.message || "工作区访问失败。");
+        stopWorkspaceAutoSync();
+        if (!silent) setStatus(error.message || "工作区访问失败。");
+        return false;
+      }
     }
 
     async function openFile(path, { forceReload = false, skipPersist = false, quiet = false } = {}) {
@@ -2479,6 +2500,8 @@
         }
         return true;
       } catch (error) {
+        markWorkspaceUnavailable(error.message || "工作区自动同步失败。");
+        stopWorkspaceAutoSync();
         if (!silent) setStatus(error.message || "工作区自动同步失败。");
         return false;
       } finally {

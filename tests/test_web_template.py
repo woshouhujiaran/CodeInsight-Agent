@@ -26,6 +26,7 @@ def test_index_template_includes_stream_cancel_and_multiline_sse_guards() -> Non
     assert "const API_ROUTES = Object.freeze(" in script
     assert "function ensureNotBusy()" in script
     assert 'if (state.streamController?.signal?.aborted) {' in script
+    assert "function markWorkspaceUnavailable(message)" in script
     assert 'if (options.body != null && !headers.has("Content-Type")) {' in script
     assert 'async function createSession() {' in script
     assert 'if (ensureNotBusy()) return;' in script
@@ -37,6 +38,7 @@ def test_index_template_includes_stream_cancel_and_multiline_sse_guards() -> Non
     assert 'if (eventName === SSE_EVENTS.error)' in script
     assert "scheduleChangeSummaryRender();" in script
     assert script.count("function finalizeStream(fallbackStatus)") == 1
+    assert script.count("stopWorkspaceAutoSync();") >= 2
 
 
 def test_index_template_includes_workspace_editor_shell() -> None:
