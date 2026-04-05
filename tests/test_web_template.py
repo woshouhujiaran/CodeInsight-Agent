@@ -37,8 +37,39 @@ def test_index_template_includes_stream_cancel_and_multiline_sse_guards() -> Non
     assert "saveSettingsBtnEl.disabled = busy;" in script
     assert 'if (eventName === SSE_EVENTS.error)' in script
     assert "scheduleChangeSummaryRender();" in script
-    assert script.count("function finalizeStream(fallbackStatus)") == 1
+    assert script.count("function finalizeStream(streamRequestId, fallbackStatus)") == 1
     assert script.count("stopWorkspaceAutoSync();") >= 2
+    assert "const shouldShowPendingAssistant = Boolean(" in script
+    assert 'state.pendingAssistantEl && (!lastMessage || lastMessage.role !== "assistant")' in script
+    assert "streamRequestSerial: 0," in script
+    assert "activeStreamRequestId: 0," in script
+    assert "function processSseEventBlock(block, streamRequestId = state.activeStreamRequestId)" in script
+    assert "function handleStreamEvent(eventName, data, streamRequestId = state.activeStreamRequestId)" in script
+    assert "if (streamRequestId !== state.activeStreamRequestId) return;" in script
+    assert 'finalizeStream(streamRequestId, "已完成。");' in script
+    assert "finalizeStream(streamRequestId, state.streamTerminalStatus);" in script
+    assert "state.activeStreamRequestId = 0;" in script
+    assert script.count("function renderWorkspaceMeta(") == 1
+    assert script.count("function renderWorkspaceTree(") == 1
+    assert script.count("function renderFileTabs(") == 1
+    assert script.count("function renderEditor({ syncValue = true, refreshSummary = true } = {})") == 1
+    assert script.count("async function refreshWorkspaceTree({ skipPersist = false, silent = false } = {})") == 1
+    assert script.count("async function openFile(path, { forceReload = false, skipPersist = false, quiet = false } = {})") == 1
+
+
+def test_index_template_clamps_long_message_content() -> None:
+    stylesheet = INDEX_STYLESHEET_PATH.read_text(encoding="utf-8")
+
+    assert "overflow-wrap:anywhere;" in stylesheet
+    assert "min-width:0;" in stylesheet
+    assert "flex:0 0 auto;" in stylesheet
+    assert "align-self:flex-start;" in stylesheet
+    assert "align-self:flex-end;" in stylesheet
+    assert "#messageInput{" in stylesheet
+    assert "max-height:220px;" in stylesheet
+    assert ".session-nav{" in stylesheet
+    assert ".session-nav-btn{" in stylesheet
+    assert ".session-current{" in stylesheet
 
 
 def test_index_template_includes_workspace_editor_shell() -> None:

@@ -168,6 +168,8 @@
       streamController: null,
       streamStopRequested: false,
       streamTerminalStatus: "",
+      streamRequestSerial: 0,
+      activeStreamRequestId: 0,
       pendingAssistantEl: null,
       pendingAssistantText: "",
       workspaceEntries: [],
@@ -1136,17 +1138,21 @@
 
     function renderMessages(session) {
       const messages = session?.messages || [];
+      const lastMessage = messages[messages.length - 1] || null;
+      const shouldShowPendingAssistant = Boolean(
+        state.pendingAssistantEl && (!lastMessage || lastMessage.role !== "assistant")
+      );
       if (!messages.length) {
-        els.messages.innerHTML = state.pendingAssistantEl
+        els.messages.innerHTML = shouldShowPendingAssistant
           ? ""
           : '<div class="empty">开始一轮多步对话后，消息会显示在这里。</div>';
-        if (state.pendingAssistantEl) els.messages.appendChild(state.pendingAssistantEl);
+        if (shouldShowPendingAssistant) els.messages.appendChild(state.pendingAssistantEl);
         return;
       }
       els.messages.innerHTML = messages.map(message => `
         <div class="message ${message.role === "user" ? "user" : "assistant"}">${escapeHtml(message.content)}</div>
       `).join("");
-      if (state.pendingAssistantEl) els.messages.appendChild(state.pendingAssistantEl);
+      if (shouldShowPendingAssistant) els.messages.appendChild(state.pendingAssistantEl);
       els.messages.scrollTop = els.messages.scrollHeight;
     }
 
@@ -1191,7 +1197,7 @@
       `;
     }
 
-    function renderWorkspaceMeta(note = "") {
+    function legacyRenderWorkspaceMeta(note = "") {
       if (!state.currentSession) {
         els.workspaceMeta.textContent = "尚未选择会话";
         return;
@@ -1356,7 +1362,7 @@
       updateTreeNodeDom(normalizedPath);
     }
 
-    function renderWorkspaceTree() {
+    function legacyRenderWorkspaceTree() {
       if (!state.currentSession) {
         els.workspaceTree.innerHTML = '<div class="empty">先创建或选择会话。</div>';
         return;
@@ -1393,7 +1399,7 @@
       if (needsRerender) renderFileTabs();
     }
 
-    function renderFileTabs() {
+    function legacyRenderFileTabs() {
       if (!state.openFiles.length) {
         els.fileTabs.innerHTML = '<div class="empty" style="padding:8px 10px">尚未打开文件</div>';
         return;
@@ -1575,7 +1581,7 @@
       sendBtnEl.setAttribute("aria-label", busy ? "停止当前流式请求" : "发送消息");
     }
 
-    function renderEditor({ syncValue = true, refreshSummary = true } = {}) {
+    function legacyRenderEditor({ syncValue = true, refreshSummary = true } = {}) {
       const file = getActiveFile();
       if (!file) {
         els.editorTitle.textContent = "本地代码工作台";
@@ -1753,7 +1759,7 @@
       }
     }
 
-    async function refreshWorkspaceTree({ skipPersist = false, silent = false } = {}) {
+    async function legacyRefreshWorkspaceTree({ skipPersist = false, silent = false } = {}) {
       if (!state.currentSession) {
         renderWorkspaceMeta();
         renderWorkspaceTree();
@@ -1777,7 +1783,7 @@
       if (!silent) setStatus("文件树已刷新。");
     }
 
-    async function openFile(path, { forceReload = false, skipPersist = false, quiet = false } = {}) {
+    async function legacyOpenFile(path, { forceReload = false, skipPersist = false, quiet = false } = {}) {
       const normalizedPath = normPath(path);
       const existing = getOpenFile(normalizedPath);
       if (existing && !forceReload) {
@@ -1934,7 +1940,7 @@
       return { blocks, buffer: remaining };
     }
 
-    function processSseEventBlock(block) {
+    function processSseEventBlock(block, streamRequestId = state.activeStreamRequestId) {
       const parsed = parseSseEventBlock(block);
       if (!parsed) return;
       let payload;
@@ -1943,10 +1949,11 @@
       } catch {
         throw new Error("流式事件解析失败。");
       }
-      handleStreamEvent(parsed.eventName, payload);
+      handleStreamEvent(parsed.eventName, payload, streamRequestId);
     }
 
-    function handleStreamEvent(eventName, data) {
+    function handleStreamEvent(eventName, data, streamRequestId = state.activeStreamRequestId) {
+      if (streamRequestId !== state.activeStreamRequestId) return;
       if (eventName === SSE_EVENTS.streamProfile) {
         if (data?.kind === "phased") setStatus("阶段流返回中...");
         return;
@@ -2034,6 +2041,9 @@
       state.currentSession.messages = [...(state.currentSession.messages || []), { role: "user", content }];
       renderMessages(state.currentSession);
       appendPendingAssistant();
+      const streamRequestId = state.streamRequestSerial + 1;
+      state.streamRequestSerial = streamRequestId;
+      state.activeStreamRequestId = streamRequestId;
       state.streamController = new AbortController();
       state.streamStopRequested = false;
       state.streamTerminalStatus = "";
@@ -2055,19 +2065,19 @@
           buffer += decoder.decode(value, { stream: true });
           const drained = drainSseBuffer(buffer);
           buffer = drained.buffer;
-          for (const block of drained.blocks) processSseEventBlock(block);
+          for (const block of drained.blocks) processSseEventBlock(block, streamRequestId);
         }
         buffer += decoder.decode();
         const flushed = drainSseBuffer(buffer, true);
-        for (const block of flushed.blocks) processSseEventBlock(block);
-        finalizeStream("已完成。");
+        for (const block of flushed.blocks) processSseEventBlock(block, streamRequestId);
+        finalizeStream(streamRequestId, "已完成。");
       } catch (error) {
         if (error.name === "AbortError") {
           setStreamTerminalStatus(state.streamTerminalStatus || (state.streamStopRequested ? "已取消" : "流式已中断。"));
         } else {
           setStreamTerminalStatus(error.message || "发送失败。");
         }
-        finalizeStream(state.streamTerminalStatus);
+        finalizeStream(streamRequestId, state.streamTerminalStatus);
       }
     }
 
@@ -2558,13 +2568,15 @@
       }, WORKSPACE_AUTO_SYNC_MS);
     }
 
-    function finalizeStream(fallbackStatus) {
+    function finalizeStream(streamRequestId, fallbackStatus) {
+      if (streamRequestId !== state.activeStreamRequestId) return;
       const terminal = state.streamTerminalStatus || fallbackStatus || "";
       clearPendingAssistant();
       if (state.currentSession) renderMessages(state.currentSession);
       state.streamController = null;
       state.streamStopRequested = false;
       state.streamTerminalStatus = "";
+      state.activeStreamRequestId = 0;
       setStreamingControls(false);
       syncWorkspaceIfChanged({ silent: true }).catch(() => {});
       renderEditor({ refreshSummary: false });
