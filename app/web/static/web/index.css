@@ -926,6 +926,7 @@
       flex-direction:column;
       gap:12px;
       min-height:0;
+      height:100%;
       padding-right:10px;
       border-right:1px solid rgba(148,163,184,.14);
     }
@@ -952,6 +953,7 @@
     }
     .session-current.empty{opacity:.82}
     .session-nav-scroll{
+      flex:1;
       display:flex;
       flex-direction:column;
       gap:12px;
@@ -959,7 +961,7 @@
       overflow-y:auto;
       overflow-x:hidden;
       padding-right:6px;
-      scrollbar-gutter:stable;
+      scrollbar-gutter:auto;
     }
     .session-list{
       display:flex;
@@ -1050,6 +1052,12 @@
       border-radius:12px;
       background:rgba(15,23,42,.98);
       box-shadow:var(--shadow);
+    }
+    .session-card-menu-panel.is-fixed-portal{
+      position:fixed;
+      top:auto;
+      right:auto;
+      z-index:20050;
     }
     .session-card-menu-panel button{
       width:100%;
@@ -1151,10 +1159,6 @@
     .session-card-actions{align-self:flex-start}
     .session-card-menu{position:relative;z-index:1}
     .session-card-menu[open]{z-index:70}
-    .session-card-menu.drop-up .session-card-menu-panel{
-      top:auto;
-      bottom:calc(100% + 6px);
-    }
     .session-card-menu-panel{max-width:min(180px,calc(100vw - 32px))}
     .tree-action{align-items:flex-start}
     .tree-name{

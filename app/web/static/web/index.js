@@ -572,6 +572,8 @@
         state.rightCollapsed ? "展开右侧会话与对话侧栏" : "折叠右侧会话与对话侧栏"
       );
       els.toggleRightSidebarBtn.classList.toggle("active", !state.rightCollapsed);
+
+      repositionOpenSessionMenus();
     }
 
     function toggleLeftSidebar() {
@@ -999,22 +1001,44 @@
       return items.map(session => renderSessionItem(session, options)).join("");
     }
 
-    function syncSessionMenuDirection(menu) {
-      if (!menu) return;
-      menu.classList.remove("drop-up");
-      const panel = menu.querySelector(".session-card-menu-panel");
-      const scrollHost = menu.closest(".session-nav-scroll");
-      if (!panel || !scrollHost) return;
-      const panelHeight = panel.offsetHeight || 120;
-      const menuRect = menu.getBoundingClientRect();
-      const scrollRect = scrollHost.getBoundingClientRect();
-      const spaceBelow = scrollRect.bottom - menuRect.bottom;
-      const spaceAbove = menuRect.top - scrollRect.top;
-      if (spaceBelow < panelHeight + 8 && spaceAbove > spaceBelow) menu.classList.add("drop-up");
+    function resetSessionMenuPanel(menu) {
+      const panel = menu?.querySelector(".session-card-menu-panel");
+      if (!panel) return;
+      panel.classList.remove("is-fixed-portal");
+      panel.style.top = "";
+      panel.style.left = "";
+    }
+
+    /** 使用 fixed 锚定在「更多」按钮下方，避免被 session-nav-scroll 裁剪，且始终向下展开。 */
+    function positionSessionMenuPanel(menu) {
+      const summary = menu?.querySelector("summary");
+      const panel = menu?.querySelector(".session-card-menu-panel");
+      if (!summary || !panel) return;
+      panel.classList.add("is-fixed-portal");
+      const place = () => {
+        const sr = summary.getBoundingClientRect();
+        const pw = panel.offsetWidth || 140;
+        const margin = 8;
+        let left = sr.right - pw;
+        left = Math.min(left, window.innerWidth - pw - margin);
+        left = Math.max(margin, left);
+        panel.style.left = `${Math.round(left)}px`;
+        panel.style.top = `${Math.round(sr.bottom + 6)}px`;
+      };
+      requestAnimationFrame(() => {
+        place();
+        requestAnimationFrame(place);
+      });
+    }
+
+    function repositionOpenSessionMenus() {
+      document.querySelectorAll("[data-session-menu][open]").forEach(menu => positionSessionMenuPanel(menu));
     }
 
     function closeSessionMenu(target) {
-      target?.closest("[data-session-menu]")?.removeAttribute("open");
+      const menu = target?.closest("[data-session-menu]");
+      menu?.removeAttribute("open");
+      if (menu) resetSessionMenuPanel(menu);
     }
 
     function wireSessionListActions(container, { archived = false } = {}) {
@@ -1071,12 +1095,17 @@
       });
       container.querySelectorAll("[data-session-menu]").forEach(menu => {
         menu.addEventListener("toggle", () => {
-          menu.classList.remove("drop-up");
-          if (!menu.open) return;
+          if (!menu.open) {
+            resetSessionMenuPanel(menu);
+            return;
+          }
           document.querySelectorAll("[data-session-menu][open]").forEach(other => {
-            if (other !== menu) other.open = false;
+            if (other !== menu) {
+              other.open = false;
+              resetSessionMenuPanel(other);
+            }
           });
-          requestAnimationFrame(() => syncSessionMenuDirection(menu));
+          requestAnimationFrame(() => positionSessionMenuPanel(menu));
         });
       });
     }
@@ -2645,7 +2674,10 @@
       if (!els.toolbarMoreMenu) return;
       if (!els.toolbarMoreMenu.contains(event.target)) els.toolbarMoreMenu.open = false;
       document.querySelectorAll("[data-session-menu][open]").forEach(menu => {
-        if (!menu.contains(event.target)) menu.open = false;
+        if (!menu.contains(event.target)) {
+          menu.open = false;
+          resetSessionMenuPanel(menu);
+        }
       });
     });
     document.addEventListener("keydown", event => {
@@ -2653,6 +2685,7 @@
       if (event.key === "Escape") {
         document.querySelectorAll("[data-session-menu][open]").forEach(menu => {
           menu.open = false;
+          resetSessionMenuPanel(menu);
         });
       }
     });
@@ -2664,6 +2697,17 @@
       syncWorkspaceIfChanged({ silent: true }).catch(() => {});
     });
     window.addEventListener("resize", applyLayoutState);
+
+    document.querySelector(".session-nav-scroll")?.addEventListener(
+      "scroll",
+      () => {
+        document.querySelectorAll("[data-session-menu][open]").forEach(menu => {
+          menu.open = false;
+          resetSessionMenuPanel(menu);
+        });
+      },
+      { passive: true }
+    );
 
     readLayoutState();
     applyLayoutState();
