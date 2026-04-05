@@ -27,6 +27,8 @@ AGENTIC_JSON_SYSTEM_SUFFIX = (
     "arguments 必须是 JSON 对象；不要编造工具名。"
 )
 
+_RETRYABLE_HTTP_STATUS_CODES = frozenset({408, 409, 425, 429, 500, 502, 503, 504})
+
 
 def strip_json_fences(text: str) -> str:
     text = text.strip()
@@ -83,6 +85,7 @@ class LLMClient:
     model: str = "deepseek-chat"
     provider: str = "deepseek"
     timeout_seconds: int = 60
+    max_retries: int = 2
 
     def __post_init__(self) -> None:
         self.logger = get_logger("codeinsight.llm")
@@ -442,30 +445,50 @@ class LLMClient:
         if response_format_json:
             payload["response_format"] = {"type": "json_object"}
 
-        req = request.Request(
-            url=url,
-            data=json.dumps(payload).encode("utf-8"),
-            headers={
-                "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_key}",
-            },
-            method="POST",
-        )
-        try:
-            with request.urlopen(req, timeout=self.timeout_seconds) as resp:
-                body = resp.read().decode("utf-8")
-                data = json.loads(body)
-                return data["choices"][0]["message"]["content"]
-        except error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="ignore")
-            self.logger.error("LLM HTTP error: %s, body=%s", exc.code, error_body)
-            if response_format_json and exc.code in (400, 404):
-                # Provider may not support response_format; caller can retry without it.
-                self.logger.info("JSON response_format rejected; caller may retry without json_mode.")
-            return None
-        except Exception as exc:  # noqa: BLE001
-            self.logger.error("LLM request failed: %s", exc)
-            return None
+        max_attempts = max(1, int(self.max_retries) + 1)
+        for attempt in range(1, max_attempts + 1):
+            req = request.Request(
+                url=url,
+                data=json.dumps(payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {api_key}",
+                },
+                method="POST",
+            )
+            try:
+                with request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                    body = resp.read().decode("utf-8")
+                    data = json.loads(body)
+                    return data["choices"][0]["message"]["content"]
+            except error.HTTPError as exc:
+                error_body = exc.read().decode("utf-8", errors="ignore")
+                self.logger.error("LLM HTTP error: %s, body=%s", exc.code, error_body)
+                if response_format_json and exc.code in (400, 404):
+                    # Provider may not support response_format; caller can retry without it.
+                    self.logger.info("JSON response_format rejected; caller may retry without json_mode.")
+                    return None
+                if not self._should_retry_http_error(exc.code, attempt=attempt, max_attempts=max_attempts):
+                    return None
+                self._sleep_before_retry(attempt)
+            except error.URLError as exc:
+                self.logger.error("LLM network error: %s", exc)
+                if attempt >= max_attempts:
+                    return None
+                self._sleep_before_retry(attempt)
+            except Exception as exc:  # noqa: BLE001
+                self.logger.error("LLM request failed: %s", exc)
+                return None
+        return None
+
+    def _should_retry_http_error(self, status_code: int, *, attempt: int, max_attempts: int) -> bool:
+        if status_code not in _RETRYABLE_HTTP_STATUS_CODES:
+            return False
+        return attempt < max_attempts
+
+    def _sleep_before_retry(self, attempt: int) -> None:
+        delay = min(0.5 * attempt, 1.5)
+        time.sleep(delay)
 
     def _resolve_api_key(self, provider: str) -> str:
         if provider == "deepseek":

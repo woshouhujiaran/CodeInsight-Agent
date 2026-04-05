@@ -5,7 +5,7 @@ import subprocess
 import sys
 from pathlib import Path
 
-from app.tools.run_command_tool import RunCommandTool
+from app.tools.run_command_tool import RunCommandTool, argv_matches_allowlist
 
 
 def _ws(tmp_path: Path) -> Path:
@@ -28,11 +28,10 @@ def test_run_command_rejects_shell_metacharacters(tmp_path: Path) -> None:
     assert "metacharacters" in str(result.get("error") or "")
 
 
-def test_run_command_rejects_pytest_execution(tmp_path: Path) -> None:
-    tool = RunCommandTool(workspace_root=_ws(tmp_path))
-    result = tool.run({"argv": [sys.executable, "-m", "pytest", "-q"]})
-    assert result["status"] == "error"
-    assert result.get("meta", {}).get("allowlist_rejected") is True
+def test_run_command_allows_safe_readonly_prefixes() -> None:
+    assert argv_matches_allowlist(["rg", "--version"]) is True
+    assert argv_matches_allowlist([sys.executable, "-m", "pytest", "-q"]) is True
+    assert argv_matches_allowlist([sys.executable, "-m", "compileall", "--help"]) is True
 
 
 def test_run_command_git_status_ok(tmp_path: Path) -> None:
@@ -62,6 +61,18 @@ def test_run_command_allows_configured_test_command(tmp_path: Path) -> None:
     payload = json.loads(str(result.get("data") or "{}"))
     assert payload.get("returncode") == 0
     assert payload.get("timed_out") is False
+
+
+def test_run_command_pytest_prefix_executes(tmp_path: Path) -> None:
+    workspace = _ws(tmp_path)
+    (workspace / "test_ok.py").write_text("def test_ok():\n    assert True\n", encoding="utf-8")
+    tool = RunCommandTool(workspace_root=workspace, default_timeout_seconds=30.0)
+
+    result = tool.run({"argv": [sys.executable, "-m", "pytest", "-q"], "timeout_seconds": 15})
+
+    assert result["status"] == "ok"
+    payload = json.loads(str(result.get("data") or "{}"))
+    assert payload.get("returncode") == 0
 
 
 def test_run_command_command_string_split(tmp_path: Path) -> None:

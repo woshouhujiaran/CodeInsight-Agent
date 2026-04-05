@@ -14,6 +14,11 @@ from app.utils.logger import get_logger
 BASE_ALLOWLIST_PREFIXES: tuple[tuple[str, ...], ...] = (
     ("git", "status"),
     ("git", "diff"),
+    ("rg",),
+    ("pytest",),
+    ("python", "-m", "pytest"),
+    ("python", "-m", "compileall"),
+    ("ruff", "check"),
 )
 
 _SHELL_METACHAR_RE = re.compile(r"[|&;<>$\n\r`]")
@@ -97,7 +102,7 @@ class RunCommandTool(BaseTool):
     name = "run_command_tool"
     description = (
         "Execute a low-risk allowlisted command without shell expansion inside the workspace. "
-        "Allowed prefixes: git status, git diff."
+        "Allowed prefixes: git status, git diff, rg, pytest, python -m pytest, python -m compileall, ruff check."
     )
 
     def __init__(
@@ -220,17 +225,22 @@ class RunCommandTool(BaseTool):
         if not self._exact_allowlist:
             return (
                 "Execute a low-risk allowlisted command without shell expansion inside the workspace. "
-                "Allowed prefixes: git status, git diff."
+                "Allowed prefixes: git status, git diff, rg, pytest, python -m pytest, "
+                "python -m compileall, ruff check."
             )
         return (
             "Execute a low-risk allowlisted command without shell expansion inside the workspace. "
-            "Allowed prefixes: git status, git diff; exact matches also include the session's configured test command."
+            "Allowed prefixes: git status, git diff, rg, pytest, python -m pytest, "
+            "python -m compileall, ruff check; exact matches also include the session's configured test command."
         )
 
     def _allowlist_rejection_message(self) -> str:
         if not self._exact_allowlist:
-            return "command is not allowlisted; only `git status` and `git diff` are permitted"
+            return (
+                "command is not allowlisted; permitted prefixes are `git status`, `git diff`, `rg`, `pytest`, "
+                "`python -m pytest`, `python -m compileall`, and `ruff check`"
+            )
         return (
-            "command is not allowlisted; permitted commands are `git status`, `git diff`, "
-            "and the session's configured test command"
+            "command is not allowlisted; permitted prefixes are `git status`, `git diff`, `rg`, `pytest`, "
+            "`python -m pytest`, `python -m compileall`, `ruff check`, and the session's configured test command"
         )

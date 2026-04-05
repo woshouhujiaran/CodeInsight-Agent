@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal, TypedDict
 
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, field_validator
 
 try:  # pragma: no cover - Pydantic v1 fallback
     from pydantic import ConfigDict
@@ -47,7 +47,8 @@ class SessionSettingsModel(_ExtraAllowModel):
     auto_run_tests: bool = False
     max_turns: int = Field(default=DEFAULT_MAX_TURNS, ge=MIN_MAX_TURNS, le=MAX_MAX_TURNS)
 
-    @validator("max_turns", pre=True, always=True)
+    @field_validator("max_turns", mode="before")
+    @classmethod
     def _normalize_max_turns(cls, value: Any) -> int:
         return normalize_max_turns(value)
 
