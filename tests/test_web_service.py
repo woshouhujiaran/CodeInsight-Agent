@@ -284,6 +284,12 @@ def test_turn_mode_decider_treats_add_api_requests_as_agentic() -> None:
     assert decider.infer("帮我给当前项目新增一个 /healthz API，并补最小测试。先自己分析再动手。") == "agentic"
 
 
+def test_turn_mode_decider_prefers_workspace_qa_for_readonly_existence_checks() -> None:
+    decider = TurnModeDecider()
+
+    assert decider.infer("在当前项目里确认 /healthz API 是否已存在，如果已有就直接告诉我，不要修改文件。") == "workspace_qa"
+
+
 def test_web_service_mode_arbitration_then_qa(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root="")
@@ -326,6 +332,32 @@ def test_web_service_project_overview_uses_workspace_qa_when_workspace_is_bound(
     assert factory.created_agents
     assert fake_llm.calls == []
     assert len(factory.created_agents[0].recorded_prompts) == 1
+
+
+def test_web_service_readonly_existence_check_uses_workspace_qa(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(workspace))
+    factory = FakeAgentFactory(
+        turns=[build_turn("已确认该接口已存在。", [{"tool": "grep_tool", "status": "ok"}])]
+    )
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: FakeLLM(answer="不应被调用"),
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(
+        session["session_id"],
+        "在当前项目里确认 /healthz API 是否已存在，如果已有就直接告诉我，不要修改文件。",
+    )
+
+    assert result["assistant"] == "已确认该接口已存在。"
+    assert result["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert result["session"]["tasks"] == []
+    assert result["session"]["turn_metadata"][-1]["tool_results"][0]["tool"] == "grep_tool"
 
 
 def test_web_service_qa_prompt_encourages_clarification_for_ambiguous_requests(tmp_path: Path) -> None:

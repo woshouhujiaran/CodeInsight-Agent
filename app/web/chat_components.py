@@ -265,6 +265,9 @@ class TurnModeDecider:
         if not text:
             return ("qa", False)
 
+        if self._looks_like_workspace_exists_check_request(text, lowered):
+            return ("workspace_qa", False)
+
         if self._looks_like_workspace_file_explanation_request(text, lowered):
             return ("workspace_qa", False)
 
@@ -491,6 +494,65 @@ class TurnModeDecider:
             text,
             lowered,
             action_markers,
+        )
+
+    def _looks_like_workspace_exists_check_request(self, text: str, lowered: str) -> bool:
+        mentions_workspace_target = self._contains_any(
+            text,
+            lowered,
+            self._PROJECT_SCOPE_MARKERS + self._WORKSPACE_QA_TARGET_MARKERS,
+        )
+        existence_markers = (
+            "是否已存在",
+            "是否存在",
+            "有没有",
+            "确认",
+            "看下有没有",
+            "确认下",
+            "是不是已经有",
+            "是否已经有",
+        )
+        target_markers = (
+            "api",
+            "接口",
+            "路由",
+            "功能",
+            "文件",
+            "命令",
+            "端点",
+        )
+        readonly_markers = (
+            "不修改文件",
+            "不改文件",
+            "先别动文件",
+            "不要修改文件",
+            "不要改文件",
+        )
+        write_or_run_markers = (
+            "修改",
+            "修复",
+            "新增",
+            "添加",
+            "重构",
+            "删除",
+            "补丁",
+            "patch",
+            "diff",
+            "跑测试",
+            "运行测试",
+            "pytest",
+            "build",
+            "构建",
+            "打包",
+            "执行",
+            "运行",
+        )
+        has_readonly_guard = self._contains_any(text, lowered, readonly_markers)
+        return (
+            mentions_workspace_target
+            and self._contains_any(text, lowered, existence_markers)
+            and self._contains_any(text, lowered, target_markers)
+            and (has_readonly_guard or not self._contains_any(text, lowered, write_or_run_markers))
         )
 
     def _looks_like_workspace_file_explanation_request(self, text: str, lowered: str) -> bool:
