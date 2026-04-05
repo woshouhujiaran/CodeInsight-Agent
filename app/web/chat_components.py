@@ -317,6 +317,25 @@ class TurnModeDecider:
         if _looks_like_project_review_request(text, lowered):
             return ("agentic", False)
 
+        project_optimization_markers = (
+            "优化一下",
+            "优化下",
+            "帮我优化",
+            "有点乱",
+            "有些乱",
+            "性能有点差",
+            "性能有点慢",
+            "性能较差",
+            "结构有点乱",
+            "目录有点乱",
+        )
+        if self._contains_any(text, lowered, self._PROJECT_SCOPE_MARKERS) and self._contains_any(
+            text,
+            lowered,
+            project_optimization_markers,
+        ):
+            return ("agentic", False)
+
         if self._looks_like_workspace_qa_request(text, lowered):
             return ("workspace_qa", False)
 
@@ -1274,8 +1293,26 @@ class AgenticTaskCoordinator:
             "构建",
             "打包",
         )
-        return _looks_like_project_review_request(text, lowered) and not any(
-            marker in text or marker in lowered for marker in write_or_run_markers
+        project_optimization_markers = (
+            "优化一下",
+            "优化下",
+            "帮我优化",
+            "有点乱",
+            "有些乱",
+            "性能有点差",
+            "性能有点慢",
+            "性能较差",
+            "结构有点乱",
+            "目录有点乱",
+        )
+        if any(marker in text or marker in lowered for marker in write_or_run_markers):
+            return False
+        if _looks_like_project_review_request(text, lowered):
+            return True
+        return _contains_any_keyword(text, lowered, TurnModeDecider._PROJECT_SCOPE_MARKERS) and _contains_any_keyword(
+            text,
+            lowered,
+            project_optimization_markers,
         )
 
     def _build_review_task_board(self) -> TaskBoard:

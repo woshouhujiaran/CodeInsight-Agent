@@ -282,6 +282,8 @@ def test_turn_mode_decider_treats_add_api_requests_as_agentic() -> None:
     decider = TurnModeDecider()
 
     assert decider.infer("帮我给当前项目新增一个 /healthz API，并补最小测试。先自己分析再动手。") == "agentic"
+    assert decider.infer("我这个项目感觉有点乱，帮我优化一下") == "agentic"
+    assert decider.infer("这个项目性能有点差，帮我优化一下") == "agentic"
 
 
 def test_turn_mode_decider_prefers_workspace_qa_for_readonly_existence_checks() -> None:
@@ -572,6 +574,27 @@ def test_web_service_uses_review_board_for_review_requests(tmp_path: Path) -> No
     assert titles == ["定位关键后端入口", "审查输入输出与状态流转", "汇总结论与改进建议"]
 
 
+def test_web_service_vague_project_optimization_uses_workspace_qa_when_session_is_readonly(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[build_turn("建议先梳理入口、服务层和工具层边界。", [{"tool": "list_dir_tool", "status": "ok"}])]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(
+        session["session_id"],
+        "我这个项目感觉有点乱，帮我优化一下",
+    )
+
+    assert result["assistant"] == "建议先梳理入口、服务层和工具层边界。"
+    assert result["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert result["session"]["tasks"] == []
+
+
 def test_web_service_carries_prior_tool_context_into_later_task_prompts(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(
@@ -623,6 +646,30 @@ def test_web_service_agentic_without_workspace_falls_back_to_qa(tmp_path: Path) 
     assert factory.created_agents == []
     assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
     assert result["assistant"] == fake_llm.answer
+
+
+def test_web_service_project_optimization_request_skips_mode_arbitration(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[build_turn("先做只读项目梳理。", [{"tool": "list_dir_tool", "status": "ok"}])]
+    )
+    fake_llm = FakeLLM(answer="不应被用于模式仲裁")
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(session["session_id"], "我这个项目感觉有点乱，帮我优化一下")
+
+    assert result["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert factory.created_agents
+    assert fake_llm.calls == []
 
 
 def test_web_service_stream_emits_session_with_current_user_message(tmp_path: Path) -> None:

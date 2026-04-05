@@ -386,6 +386,14 @@ class WebAgentService:
         if safety_refusal is None and mode == "qa":
             clarification_prompt = self.clarification_guard.review(user_content)
         settings = normalize_session_settings(snapshot.get("settings"))
+        if (
+            mode == "agentic"
+            and workspace_raw
+            and not settings.get("allow_write")
+            and not settings.get("allow_shell")
+            and self._looks_like_vague_project_optimization_request(user_content)
+        ):
+            mode = "workspace_qa"
         memory = ConversationMemory.from_snapshot(snapshot)
         history_before_turn = memory.get_messages()
 
@@ -674,6 +682,26 @@ class WebAgentService:
         text = str(user_content or "").strip()
         lowered = text.lower()
         return self.mode_decider._looks_like_workspace_file_explanation_request(text, lowered)
+
+    def _looks_like_vague_project_optimization_request(self, user_content: str) -> bool:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        project_markers = ("当前项目", "这个项目", "本项目", "项目")
+        optimization_markers = (
+            "优化一下",
+            "优化下",
+            "帮我优化",
+            "有点乱",
+            "有些乱",
+            "性能有点差",
+            "性能有点慢",
+            "性能较差",
+            "结构有点乱",
+            "目录有点乱",
+        )
+        return any(marker in text or marker in lowered for marker in project_markers) and any(
+            marker in text or marker in lowered for marker in optimization_markers
+        )
 
     def _sync_session_title(self, snapshot: dict[str, Any]) -> None:
         if snapshot.get("title_overridden"):
