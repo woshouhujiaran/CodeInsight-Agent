@@ -50,6 +50,7 @@ class FakeAgent:
     memory: Any
     turns: list[AgenticTurnResult]
     recorded_prompts: list[str] = field(default_factory=list)
+    recorded_max_turns: list[int] = field(default_factory=list)
     planner: FakePlanner = field(default_factory=FakePlanner)
 
     def run_agentic(
@@ -62,6 +63,7 @@ class FakeAgent:
         cancel_event: Any | None = None,
     ) -> AgenticTurnResult:
         self.recorded_prompts.append(user_query)
+        self.recorded_max_turns.append(max_turns)
         if not self.turns:
             return build_turn("没有更多假数据。")
         return self.turns.pop(0)

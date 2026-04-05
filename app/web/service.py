@@ -569,9 +569,10 @@ class WebAgentService:
             history=history,
             workspace_root=workspace_root,
         )
+        max_turns = 4 if self._looks_like_workspace_followup_query(user_content) else 6
         turn = agent.run_agentic(
             prompt,
-            max_turns=6,
+            max_turns=max_turns,
             workspace_root=workspace_root,
             persist_memory=False,
             cancel_event=cancel_event,
@@ -670,6 +671,8 @@ class WebAgentService:
             "当前处于 workspace_qa 模式：你可以读取当前工作区来回答，但不要进入任务拆解式输出。\n"
             "请优先通过 list_dir_tool、search_tool、read_file_tool 理解项目或文件夹内容，然后直接给用户自然语言总结。\n"
             "除非用户明确要求，否则不要输出任务板、步骤拆分、修改方案、补丁、测试执行结果或阶段性施工描述。\n"
+            "如果当前问题是在跟进上一轮仓库分析（例如“基于你刚才找到的位置”“基于上面这些文件”），优先沿用上一轮已涉及的文件与事实，必要时重新读取这些文件，而不是只复述上一轮答案。\n"
+            "当用户追问风险点、验证顺序、测试点时，只总结能从当前仓库文件中推出的结论；不要补充未验证的泛化风险，也不要把一般性架构常识当成当前项目事实。\n"
             "如果用户是在问“这个项目/文件夹/文件是做什么的”，先概括目标，再补充关键目录、主要模块和判断依据。\n"
             "如果是在问如何本地运行、安装依赖或启动服务，请结合 README、pyproject/package.json、脚本入口等给出可执行步骤说明（仍不要替用户执行命令）。\n"
             "如果某个结论依赖你刚读到的文件，请在表述中简短点明依据文件。\n\n"
@@ -771,6 +774,14 @@ class WebAgentService:
         if previous_mode not in {"workspace_qa", "agentic"}:
             return False
 
+        return self._looks_like_workspace_followup_query(user_content, allow_explicit_qa_override=True)
+
+    def _looks_like_workspace_followup_query(
+        self,
+        user_content: str,
+        *,
+        allow_explicit_qa_override: bool = False,
+    ) -> bool:
         text = str(user_content or "").strip()
         lowered = text.lower()
         explicit_qa_markers = ("回到问答模式", "qa 模式", "qa模式", "问答模式", "解释给非技术同学听")
@@ -796,6 +807,8 @@ class WebAgentService:
             "验证",
             "调用链",
         )
+        if allow_explicit_qa_override and any(marker in text or marker in lowered for marker in explicit_qa_markers):
+            return False
         return not any(marker in text or marker in lowered for marker in explicit_qa_markers) and any(
             marker in text or marker in lowered for marker in followup_markers
         ) and any(marker in text or marker in lowered for marker in repository_markers)

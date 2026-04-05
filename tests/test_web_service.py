@@ -677,6 +677,54 @@ def test_web_service_followup_can_still_switch_back_to_qa_explicitly(tmp_path: P
     assert fake_llm.calls
 
 
+def test_workspace_qa_prompt_guides_followup_queries_to_recheck_repo_facts(tmp_path: Path) -> None:
+    service = WebAgentService(
+        session_store=SessionStore(tmp_path / "sessions"),
+        agent_factory=FakeAgentFactory(turns=[]),
+        repo_root=tmp_path,
+    )
+
+    prompt = service._build_workspace_qa_prompt(
+        user_content="基于你刚才找到的位置，再说说最可能的风险点，还是先不改代码。",
+        history=[
+            {"role": "user", "content": "先帮我在当前项目里定位 Web 会话的模式判定逻辑，不修改文件。"},
+            {"role": "assistant", "content": "主要看 `app/web/service.py` 和 `app/web/chat_components.py`。"},
+        ],
+        workspace_root=str(tmp_path),
+    )
+
+    assert "优先沿用上一轮已涉及的文件与事实" in prompt
+    assert "必要时重新读取这些文件" in prompt
+    assert "不要补充未验证的泛化风险" in prompt
+
+
+def test_web_service_workspace_followup_uses_shorter_workspace_qa_budget(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("先定位相关文件。", [{"tool": "read_file_tool", "status": "ok"}]),
+            build_turn("再补充风险点。", [{"tool": "read_file_tool", "status": "ok"}]),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    service.chat(
+        session["session_id"],
+        "先帮我在当前项目里定位 Web 会话的模式判定逻辑，不修改文件。",
+    )
+    service.chat(
+        session["session_id"],
+        "基于你刚才找到的位置，再说说最可能的风险点，还是先不改代码。",
+    )
+
+    assert factory.created_agents[0].recorded_max_turns == [6]
+    assert factory.created_agents[1].recorded_max_turns == [4]
+
+
 def test_web_service_compact_board_omits_task_preamble_in_final_answer(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(
