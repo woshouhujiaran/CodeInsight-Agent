@@ -99,6 +99,21 @@ class TurnModeDecider:
         "会话工作区",
     )
 
+    _PROJECT_OVERVIEW_MARKERS = (
+        "做什么",
+        "是干什么的",
+        "用途",
+        "作用",
+        "项目介绍",
+        "项目概览",
+        "技术栈",
+        "主要功能",
+        "核心功能",
+        "整体结构",
+        "架构",
+        "代码结构",
+    )
+
     # 需要读/搜/改/跑的具体行动信号（命中则任务模式；避免过短词误伤「二分查找」等术语）
     _OPERATIONAL_MARKERS = (
         "定位实现",
@@ -216,6 +231,11 @@ class TurnModeDecider:
             return ("agentic", False)
 
         if _looks_like_project_review_request(text, lowered):
+            return ("agentic", False)
+
+        if self._contains_any(text, lowered, self._PROJECT_SCOPE_MARKERS) and self._contains_any(
+            text, lowered, self._PROJECT_OVERVIEW_MARKERS
+        ):
             return ("agentic", False)
 
         readonly_project_keywords = (

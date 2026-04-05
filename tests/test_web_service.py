@@ -263,7 +263,8 @@ def test_turn_mode_decider_treats_code_review_requests_as_agentic() -> None:
 def test_turn_mode_infer_with_meta_marks_ambiguous_project_queries() -> None:
     decider = TurnModeDecider()
 
-    assert decider.infer_with_meta("当前项目技术栈") == ("qa", True)
+    assert decider.infer_with_meta("当前项目技术栈") == ("agentic", False)
+    assert decider.infer("这个项目是做什么的") == "agentic"
     assert decider.infer_with_meta("git 仓库和 svn 仓库有什么区别") == ("qa", False)
     assert decider.infer_with_meta("在当前项目里 REST 和 GraphQL 有什么区别") == ("qa", False)
 
@@ -282,8 +283,34 @@ def test_web_service_mode_arbitration_then_qa(tmp_path: Path) -> None:
     result = service.chat(session["session_id"], "当前项目技术栈")
 
     assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
-    assert len(fake_llm.calls) == 2
-    assert "路由判定器" in (fake_llm.calls[0].get("system_prompt") or "")
+    assert len(fake_llm.calls) == 1
+
+
+def test_web_service_project_overview_uses_agentic_when_workspace_is_bound(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(workspace))
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("已定位关键文件。", [{"tool": "search_tool", "status": "ok"}]),
+            build_turn("已总结当前实现。", [{"tool": "analyze_tool", "status": "ok"}]),
+            build_turn("已给出验证方法。", [{"tool": "analyze_tool", "status": "ok"}]),
+        ]
+    )
+    fake_llm = FakeLLM(answer="不应被调用")
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(session["session_id"], "这个项目是做什么的")
+
+    assert result["session"]["turn_metadata"][-1]["mode"] == "agentic"
+    assert factory.created_agents
+    assert fake_llm.calls == []
 
 
 def test_web_service_qa_prompt_encourages_clarification_for_ambiguous_requests(tmp_path: Path) -> None:
