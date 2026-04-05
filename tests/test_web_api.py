@@ -256,6 +256,28 @@ def test_web_api_qa_message_works_without_workspace(tmp_path: Path) -> None:
     assert agent_factory.created_agents == []
 
 
+def test_web_api_workspace_qa_message_reads_workspace_without_task_board(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    agent_factory = FakeAgentFactory(turns=[build_turn("这是一个本地工作区项目概览。", [{"tool": "list_dir_tool", "status": "ok"}])])
+    client, _store = _client(tmp_path, agent_factory=agent_factory)
+    created = client.post("/sessions", json={"workspace_root": str(workspace), "settings": {}})
+    session_id = created.json()["session_id"]
+
+    response = client.post(
+        f"/sessions/{session_id}/messages",
+        json={"content": "这个项目是做什么的"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["assistant"] == "这是一个本地工作区项目概览。"
+    assert body["session"]["tasks"] == []
+    assert body["task_results"] == []
+    assert body["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert body["session"]["turn_metadata"][-1]["tool_results"][0]["tool"] == "list_dir_tool"
+
+
 def test_web_api_workspace_tree_and_file_read(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     pkg_dir = workspace / "pkg"
@@ -403,6 +425,30 @@ def test_web_api_qa_stream_does_not_emit_task_board(tmp_path: Path) -> None:
         "POST",
         f"/sessions/{session_id}/messages?stream=1",
         json={"content": "解释一下快速排序原理"},
+    ) as response:
+        assert response.status_code == 200
+        text = "".join(chunk for chunk in response.iter_text())
+
+    assert "event: assistant_final" in text
+    assert "event: task_board" not in text
+
+
+def test_web_api_workspace_qa_stream_does_not_emit_task_board(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    client, _store = _client(
+        tmp_path,
+        agent_factory=FakeAgentFactory(
+            turns=[build_turn("这是工作区问答回复。", [{"tool": "list_dir_tool", "status": "ok"}])]
+        ),
+    )
+    created = client.post("/sessions", json={"workspace_root": str(workspace), "settings": {}})
+    session_id = created.json()["session_id"]
+
+    with client.stream(
+        "POST",
+        f"/sessions/{session_id}/messages?stream=1",
+        json={"content": "这个项目是做什么的"},
     ) as response:
         assert response.status_code == 200
         text = "".join(chunk for chunk in response.iter_text())

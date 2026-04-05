@@ -114,6 +114,33 @@ class TurnModeDecider:
         "代码结构",
     )
 
+    _WORKSPACE_QA_EXPLANATION_MARKERS = (
+        "介绍",
+        "说明",
+        "说说",
+        "讲讲",
+        "总结",
+        "概览",
+        "整体",
+        "大概",
+        "看看",
+    )
+
+    _WORKSPACE_QA_TARGET_MARKERS = (
+        "这个项目",
+        "当前项目",
+        "这个仓库",
+        "当前仓库",
+        "这个文件夹",
+        "当前文件夹",
+        "这个目录",
+        "当前目录",
+        "本地文件",
+        "本地文件夹",
+        "这个文件",
+        "当前文件",
+    )
+
     # 需要读/搜/改/跑的具体行动信号（命中则任务模式；避免过短词误伤「二分查找」等术语）
     _OPERATIONAL_MARKERS = (
         "定位实现",
@@ -233,10 +260,8 @@ class TurnModeDecider:
         if _looks_like_project_review_request(text, lowered):
             return ("agentic", False)
 
-        if self._contains_any(text, lowered, self._PROJECT_SCOPE_MARKERS) and self._contains_any(
-            text, lowered, self._PROJECT_OVERVIEW_MARKERS
-        ):
-            return ("agentic", False)
+        if self._looks_like_workspace_qa_request(text, lowered):
+            return ("workspace_qa", False)
 
         readonly_project_keywords = (
             "不修改文件",
@@ -355,6 +380,59 @@ class TurnModeDecider:
     def infer(self, user_content: str) -> str:
         mode, _ = self.infer_with_meta(user_content)
         return mode
+
+    def _looks_like_workspace_qa_request(self, text: str, lowered: str) -> bool:
+        asks_for_explanation = self._contains_any(
+            text,
+            lowered,
+            self._PROJECT_OVERVIEW_MARKERS + self._WORKSPACE_QA_EXPLANATION_MARKERS,
+        )
+        mentions_workspace_target = self._contains_any(
+            text,
+            lowered,
+            self._PROJECT_SCOPE_MARKERS + self._WORKSPACE_QA_TARGET_MARKERS,
+        )
+        write_or_run_markers = (
+            "修改",
+            "修复",
+            "重构",
+            "删除",
+            "补丁",
+            "patch",
+            "diff",
+            "跑测试",
+            "运行测试",
+            "pytest",
+            "build",
+            "构建",
+            "打包",
+            "review",
+            "代码审查",
+            "全面阅读",
+            "全面检查",
+        )
+        action_markers = (
+            "找到",
+            "查找",
+            "定位",
+            "列出关键文件",
+            "关键文件",
+            "实现",
+            "怎么验证",
+            "如何验证",
+            "验证",
+            "入口",
+            "调用链",
+        )
+        return asks_for_explanation and mentions_workspace_target and not self._contains_any(
+            text,
+            lowered,
+            write_or_run_markers,
+        ) and not self._contains_any(
+            text,
+            lowered,
+            action_markers,
+        )
 
     @staticmethod
     def _contains_any(text: str, lowered: str, keywords: tuple[str, ...]) -> bool:

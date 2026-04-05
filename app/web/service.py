@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any, Callable, Iterator
 
 from app.agent.memory import ConversationMemory
-from app.contracts import ServiceEvent, normalize_task_results
+from app.contracts import ServiceEvent, normalize_task_results, normalize_tool_trace
 from app.runtime import create_agent_from_env, create_llm_from_env
 from app.tools.base_tool import ensure_tool_result
 from app.tools.filesystem_tools import ListDirTool, ReadFileTool
@@ -27,6 +27,15 @@ from app.web.turn_mode import arbitrate_turn_mode
 
 _QA_SYSTEM_PROMPT = """你是面向 Web 用户的代码问答助手。
 先判断用户问题属于哪一类（概念、因果、操作步骤、对比、简短事实等），再选用最贴切的表达方式：解释原理、设计取舍、背景原因时优先用连贯自然段；不要把每个观点都改成编号条目。只有在操作教程、调试顺序、并列对比、参数或检查清单等场景，才用分级标题或小列表。整体读起来应像清晰的技术说明，而不是机械罗列的要点。"""
+
+_WORKSPACE_QA_SYSTEM_PROMPT = """你是面向 Web 用户的本地工作区问答助手。
+这类问题允许你借助工作区内的文件和目录来理解当前项目，但你的对外表现仍然应当像正常 QA，而不是任务执行器。
+回答要求：
+1. 先阅读必要的本地文件/目录，再直接回答用户问题。
+2. 不要把回答写成任务拆解、任务看板、模块施工计划或阶段汇报，除非用户明确要求。
+3. 默认只读，不要修改文件，不要声称已经修改文件，也不要运行测试或命令。
+4. 重点围绕“这个项目/文件夹/文件是什么、做什么、当前结构如何”来总结，避免无关扩展。
+5. 若信息不足，先明确说依据了哪些文件，再给出条件化判断。"""
 
 
 class WebAgentService:
@@ -363,7 +372,7 @@ class WebAgentService:
             if need_mode_arbitration:
                 mode = arbitrate_turn_mode(self.llm_factory(), user_content, fallback=mode)
             workspace_raw = str(snapshot.get("workspace_root") or "").strip()
-            if mode == "agentic" and not workspace_raw:
+            if mode in {"agentic", "workspace_qa"} and not workspace_raw:
                 mode = "qa"
         clarification_prompt = None
         if safety_refusal is None and mode == "qa":
@@ -374,7 +383,7 @@ class WebAgentService:
 
         memory.add_user_message(user_content)
         snapshot["messages"] = memory.get_messages()
-        if mode == "qa":
+        if mode in {"qa", "workspace_qa"}:
             snapshot["tasks"] = []
         self._sync_session_title(snapshot)
         snapshot = self.session_store.save_session(snapshot)
@@ -414,6 +423,16 @@ class WebAgentService:
         if mode == "qa":
             return self._run_qa_turn(
                 llm=self.llm_factory(),
+                memory=memory,
+                snapshot=snapshot,
+                user_content=user_content,
+                history=history_before_turn,
+                emit=emit,
+                cancel_event=cancel_event,
+            )
+
+        if mode == "workspace_qa":
+            return self._run_workspace_qa_turn(
                 memory=memory,
                 snapshot=snapshot,
                 user_content=user_content,
@@ -503,6 +522,49 @@ class WebAgentService:
             metadata_extra={"agentic": False, "mode": "qa"},
         )
 
+    def _run_workspace_qa_turn(
+        self,
+        *,
+        memory: ConversationMemory,
+        snapshot: dict[str, Any],
+        user_content: str,
+        history: list[dict[str, str]],
+        emit: EventCallback,
+        cancel_event: Any | None = None,
+    ) -> dict[str, Any]:
+        workspace_root = self._require_workspace_root(snapshot)
+        agent = self.agent_factory(
+            workspace_root,
+            memory=memory,
+            top_k=5,
+            force_reindex=False,
+            allow_write=False,
+            allow_shell=False,
+            test_command="",
+        )
+        prompt = self._build_workspace_qa_prompt(
+            user_content=user_content,
+            history=history,
+            workspace_root=workspace_root,
+        )
+        turn = agent.run_agentic(
+            prompt,
+            max_turns=6,
+            workspace_root=workspace_root,
+            persist_memory=False,
+            cancel_event=cancel_event,
+        )
+        tool_trace = normalize_tool_trace(turn.tool_trace)
+        return self._finalize_text_turn(
+            memory=memory,
+            snapshot=snapshot,
+            answer=turn.answer,
+            emit=emit,
+            cancel_event=cancel_event,
+            metadata_extra={"agentic": False, "mode": "workspace_qa", "tool_results": tool_trace},
+            tool_results=tool_trace,
+        )
+
     def _finalize_text_turn(
         self,
         *,
@@ -512,6 +574,7 @@ class WebAgentService:
         emit: EventCallback,
         cancel_event: Any | None,
         metadata_extra: dict[str, Any],
+        tool_results: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         self._ensure_not_cancelled(cancel_event)
 
@@ -520,7 +583,7 @@ class WebAgentService:
         memory.add_assistant_message(answer)
         memory.add_turn_metadata(
             plan=[],
-            tool_results=[],
+            tool_results=list(tool_results or []),
             recovery_applied=False,
             extra=metadata_extra,
         )
@@ -564,6 +627,30 @@ class WebAgentService:
             "若用户本条主要是在调整回答风格（更短、更口语、更少列表等），可先一句话确认其偏好，再按该偏好作答。"
             "有明显错别字或断词时按最合理含义理解，必要时先说明你的理解。"
             "涉及越权、泄露敏感信息、绕过认证或破坏性操作时，明确拒绝并给出更安全的替代做法。\n\n"
+            f"[对话历史]\n{history_text}\n\n"
+            f"[当前问题]\n{user_content}\n"
+        )
+
+    def _build_workspace_qa_prompt(
+        self,
+        *,
+        user_content: str,
+        history: list[dict[str, str]],
+        workspace_root: str,
+    ) -> str:
+        recent_history = [
+            f"{item.get('role', 'user')}: {str(item.get('content') or '').strip()}"
+            for item in history[-10:]
+            if str(item.get("content") or "").strip()
+        ]
+        history_text = "\n".join(recent_history) if recent_history else "(no prior messages)"
+        return (
+            "当前处于 workspace_qa 模式：你可以读取当前工作区来回答，但不要进入任务拆解式输出。\n"
+            "请优先通过 list_dir_tool、search_tool、read_file_tool 理解项目或文件夹内容，然后直接给用户自然语言总结。\n"
+            "除非用户明确要求，否则不要输出任务板、步骤拆分、修改方案、补丁、测试执行结果或阶段性施工描述。\n"
+            "如果用户是在问“这个项目/文件夹/文件是做什么的”，先概括目标，再补充关键目录、主要模块和判断依据。\n"
+            "如果某个结论依赖你刚读到的文件，请在表述中简短点明依据文件。\n\n"
+            f"[工作区根目录]\n{workspace_root}\n\n"
             f"[对话历史]\n{history_text}\n\n"
             f"[当前问题]\n{user_content}\n"
         )

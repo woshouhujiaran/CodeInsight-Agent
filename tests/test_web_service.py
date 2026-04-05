@@ -263,8 +263,8 @@ def test_turn_mode_decider_treats_code_review_requests_as_agentic() -> None:
 def test_turn_mode_infer_with_meta_marks_ambiguous_project_queries() -> None:
     decider = TurnModeDecider()
 
-    assert decider.infer_with_meta("当前项目技术栈") == ("agentic", False)
-    assert decider.infer("这个项目是做什么的") == "agentic"
+    assert decider.infer_with_meta("当前项目技术栈") == ("workspace_qa", False)
+    assert decider.infer("这个项目是做什么的") == "workspace_qa"
     assert decider.infer_with_meta("git 仓库和 svn 仓库有什么区别") == ("qa", False)
     assert decider.infer_with_meta("在当前项目里 REST 和 GraphQL 有什么区别") == ("qa", False)
 
@@ -272,7 +272,7 @@ def test_turn_mode_infer_with_meta_marks_ambiguous_project_queries() -> None:
 def test_web_service_mode_arbitration_then_qa(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root="")
-    fake_llm = FakeLLM(answer="技术栈说明。", call_answers=["qa"])
+    fake_llm = FakeLLM(answer="技术栈说明。")
     service = WebAgentService(
         session_store=store,
         agent_factory=FakeAgentFactory(turns=[build_turn("不应被调用")]),
@@ -286,17 +286,13 @@ def test_web_service_mode_arbitration_then_qa(tmp_path: Path) -> None:
     assert len(fake_llm.calls) == 1
 
 
-def test_web_service_project_overview_uses_agentic_when_workspace_is_bound(tmp_path: Path) -> None:
+def test_web_service_project_overview_uses_workspace_qa_when_workspace_is_bound(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root=str(workspace))
     factory = FakeAgentFactory(
-        turns=[
-            build_turn("已定位关键文件。", [{"tool": "search_tool", "status": "ok"}]),
-            build_turn("已总结当前实现。", [{"tool": "analyze_tool", "status": "ok"}]),
-            build_turn("已给出验证方法。", [{"tool": "analyze_tool", "status": "ok"}]),
-        ]
+        turns=[build_turn("这是一个用于演示的本地项目。", [{"tool": "list_dir_tool", "status": "ok"}])]
     )
     fake_llm = FakeLLM(answer="不应被调用")
     service = WebAgentService(
@@ -308,9 +304,13 @@ def test_web_service_project_overview_uses_agentic_when_workspace_is_bound(tmp_p
 
     result = service.chat(session["session_id"], "这个项目是做什么的")
 
-    assert result["session"]["turn_metadata"][-1]["mode"] == "agentic"
+    assert result["assistant"] == "这是一个用于演示的本地项目。"
+    assert result["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert result["session"]["turn_metadata"][-1]["tool_results"][0]["tool"] == "list_dir_tool"
+    assert result["session"]["tasks"] == []
     assert factory.created_agents
     assert fake_llm.calls == []
+    assert len(factory.created_agents[0].recorded_prompts) == 1
 
 
 def test_web_service_qa_prompt_encourages_clarification_for_ambiguous_requests(tmp_path: Path) -> None:
