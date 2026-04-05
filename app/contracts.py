@@ -87,6 +87,10 @@ class TaskResultModel(_ExtraAllowModel):
     summary: str
     answer: str = ""
     tool_trace: list[ToolTraceEntryModel] = Field(default_factory=list)
+    task_outcome: str = ""
+    task_reason: str = ""
+    tool_success_count: int = 0
+    tool_error_count: int = 0
 
 
 class TurnMetadataModel(_ExtraAllowModel):

@@ -1161,12 +1161,25 @@
         els.taskBoard.innerHTML = '<div class="empty">暂无任务</div>';
         return;
       }
+      const latestMetadata = state.currentSession?.turn_metadata?.[state.currentSession.turn_metadata.length - 1] || null;
+      const latestTaskResults = new Map((latestMetadata?.task_results || []).map(item => [item.task_id, item]));
       els.taskBoard.innerHTML = tasks.map(task => `
+        ${(() => {
+          const result = latestTaskResults.get(task.id) || null;
+          const outcome = result?.task_outcome ? `结果：${result.task_outcome}` : "结果：待处理";
+          const counts = result
+            ? ` | 工具成功：${escapeHtml(result.tool_success_count ?? 0)} | 工具失败：${escapeHtml(result.tool_error_count ?? 0)}`
+            : "";
+          const reason = result?.task_reason ? `<div class="task-status">判定：${escapeHtml(result.task_reason)}</div>` : "";
+          return `
         <div class="task-item">
           <div class="task-title">${escapeHtml(task.title)}</div>
-          <div class="task-status">状态：${escapeHtml(task.status)} | 依赖：${escapeHtml((task.depends_on || []).join(", ") || "无")}</div>
+          <div class="task-status">状态：${escapeHtml(task.status)} | ${escapeHtml(outcome)}${counts} | 依赖：${escapeHtml((task.depends_on || []).join(", ") || "无")}</div>
+          ${reason}
           <div class="task-summary">${escapeHtml(task.summary || task.description || "")}</div>
         </div>
+      `;
+        })()}
       `).join("");
     }
     function renderTestSummary(summary) {
@@ -1192,7 +1205,10 @@
       els.evalSummary.innerHTML = `
         <div class="task-title">${escapeHtml(payload.path || "")}</div>
         <div class="task-status">成功率：${escapeHtml(summary.success_rate ?? "暂无")}</div>
+        <div class="task-status">任务完成率：${escapeHtml(summary.task_completion_rate ?? "暂无")}</div>
         <div class="task-status">平均耗时：${escapeHtml(summary.avg_duration_ms ?? "暂无")} ms</div>
+        <div class="task-status">检索命中率：${escapeHtml(summary.retrieval_hit_rate ?? "暂无")}</div>
+        <div class="task-status">检索 MRR：${escapeHtml(summary.retrieval_mrr ?? "暂无")}</div>
         <div class="task-status">恢复触发率：${escapeHtml(summary.recovery_trigger_rate ?? "暂无")}</div>
       `;
     }

@@ -90,6 +90,8 @@ def test_web_service_auto_runs_tests_only_after_successful_write(tmp_path: Path)
 
     assert result["last_test_summary"] is not None
     assert result["last_test_summary"]["passed"] is True
+    assert result["task_results"][1]["task_outcome"] == "completed"
+    assert result["task_results"][1]["task_reason"] == "write_applied"
     saved = store.get_session(session["session_id"])
     assert saved["last_test_summary"]["passed"] is True
 
@@ -119,6 +121,29 @@ def test_web_service_skips_auto_tests_without_successful_write(tmp_path: Path) -
     result = service.chat(session["session_id"], "仅分析，不写入")
 
     assert result["last_test_summary"] is None
+
+
+def test_web_service_marks_write_step_incomplete_without_patch_or_write(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("已定位入口。", [{"tool": "search_tool", "status": "ok"}]),
+            build_turn("给出修改建议。", [{"tool": "analyze_tool", "status": "ok"}]),
+            build_turn("验证说明。", [{"tool": "analyze_tool", "status": "ok"}]),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(session["session_id"], "修改当前项目里的登录逻辑")
+
+    assert result["task_results"][1]["status"] == "failed"
+    assert result["task_results"][1]["task_outcome"] == "incomplete"
+    assert result["task_results"][1]["task_reason"] == "write_not_confirmed"
+    assert result["task_results"][1]["tool_success_count"] == 1
 
 
 def test_web_service_qa_mode_allows_empty_workspace_and_skips_agent_factory(tmp_path: Path) -> None:

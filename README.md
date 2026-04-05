@@ -7,7 +7,7 @@
 - Web UI：会话列表、聊天区、文件树、编辑器、测试入口
 - Agent 执行链路：Planner / Executor / Memory / Workspace 工具
 - 面向当前工作区的读写、搜索、测试触发能力
-- 会话持久化、索引构建、评测与清理脚本
+- 会话持久化、索引构建、检索评测与清理脚本
 
 如果你只是想尽快跑起来，先看下面的“快速开始”。
 
@@ -119,6 +119,15 @@ uvicorn app.web.main:app --reload --port 8765
 - `auto_run_tests`：检测到写入后自动运行测试
 - `max_turns`：单次任务最多执行的 agent 回合数
 
+受控命令默认允许一组低风险只读前缀：
+- `git status`
+- `git diff`
+- `rg`
+- `pytest`
+- `python -m pytest`
+- `python -m compileall`
+- `ruff check`
+
 ### 文件树 / 编辑器 / 会话区
 
 - 左侧：当前工作区文件树
@@ -180,7 +189,16 @@ python scripts/run_eval.py
 
 `outputs/eval_result.json`
 
-Web 页面里的“最近评测”和 `/eval/latest` 会读取这个文件。
+Web 页面里的“最近评测”和 `/eval/latest` 会读取这个文件，并展示：
+- `success_rate / task_completion_rate`
+- `retrieval_hit_rate / retrieval_mrr`
+- `avg_duration_ms / recovery_trigger_rate`
+
+如果你只是想快速验证评测流程，或者本地 embedding 首次加载较慢，可以先在 `.env` 里设置：
+
+```env
+EMBEDDING_BACKEND=hash
+```
 
 ### 清理产物
 

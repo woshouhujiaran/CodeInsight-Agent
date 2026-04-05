@@ -547,19 +547,69 @@ class ClarificationGuard:
 
 
 class AssistantResponseRenderer:
-    def task_succeeded(self, turn: AgenticTurnResult) -> bool:
-        answer_ok = bool(turn.answer.strip())
-        if not turn.tool_trace:
-            return answer_ok
-        return answer_ok and any(item.get("status") == "ok" for item in turn.tool_trace)
+    _WRITE_MARKERS = ("修改", "修复", "补丁", "写入", "落地", "apply_patch", "保存", "编辑")
+    _VERIFY_EXECUTION_MARKERS = ("运行测试", "pytest", "回归", "测试命令", "验证改动", "执行测试", "run tests")
+    _PLAN_ONLY_MARKERS = ("说明验证方法", "给出验证方法", "验证思路", "排查思路", "总结", "定位", "审查", "分析")
 
-    def summarize_task_result(self, turn: AgenticTurnResult) -> str:
+    def evaluate_task_result(self, task: TaskItem | None, turn: AgenticTurnResult) -> dict[str, Any]:
+        answer = str(turn.answer or "").strip()
+        answer_ok = bool(answer)
+        tool_trace = list(turn.tool_trace or [])
+        ok_count = sum(1 for item in tool_trace if item.get("status") == "ok")
+        error_count = sum(1 for item in tool_trace if item.get("status") == "error")
+        write_ok = any(
+            item.get("tool") in {"apply_patch_tool", "write_file_tool"} and item.get("status") == "ok"
+            for item in tool_trace
+        )
+        test_ok = any(
+            item.get("tool") in {"run_command_tool", "test_tool"} and item.get("status") == "ok"
+            for item in tool_trace
+        )
+        patch_suggested = self._contains_patch(answer)
+        task_text = self._task_text(task)
+        requires_write = self._contains_any(task_text, self._WRITE_MARKERS) and not self._contains_any(
+            task_text, self._PLAN_ONLY_MARKERS
+        )
+        requires_executed_verification = self._contains_any(task_text, self._VERIFY_EXECUTION_MARKERS)
+
+        succeeded = False
+        reason = "missing_result"
+        if requires_write:
+            succeeded = write_ok or patch_suggested
+            reason = "write_applied" if write_ok else "patch_guidance" if patch_suggested else "write_not_confirmed"
+        elif requires_executed_verification:
+            succeeded = test_ok
+            reason = "tests_ran" if test_ok else "verification_not_run"
+        elif tool_trace:
+            succeeded = answer_ok and ok_count > 0
+            reason = "tool_backed_answer" if succeeded else "no_successful_tool"
+        else:
+            succeeded = answer_ok
+            reason = "answer_only" if succeeded else "missing_answer"
+
+        return {
+            "succeeded": succeeded,
+            "reason": reason,
+            "tool_success_count": ok_count,
+            "tool_error_count": error_count,
+            "used_write_tool": write_ok,
+            "used_test_tool": test_ok,
+            "patch_suggested": patch_suggested,
+        }
+
+    def task_succeeded(self, task: TaskItem | None, turn: AgenticTurnResult) -> bool:
+        return bool(self.evaluate_task_result(task, turn)["succeeded"])
+
+    def summarize_task_result(self, turn: AgenticTurnResult, evaluation: dict[str, Any] | None = None) -> str:
+        evaluation = evaluation or self.evaluate_task_result(None, turn)
         answer = turn.answer.strip()
         if answer:
             return answer[:240]
         if turn.tool_trace:
-            ok_count = sum(1 for item in turn.tool_trace if item.get("status") == "ok")
-            return f"完成了 {len(turn.tool_trace)} 次工具调用，其中 {ok_count} 次成功。"
+            ok_count = int(evaluation.get("tool_success_count", 0))
+            err_count = int(evaluation.get("tool_error_count", 0))
+            outcome = "任务成立" if evaluation.get("succeeded") else "任务未完成"
+            return f"完成了 {len(turn.tool_trace)} 次工具调用，其中 {ok_count} 次成功、{err_count} 次失败。{outcome}。"
         return "本步骤没有拿到有效结果。"
 
     def compose_step_plan(self, board: TaskBoard) -> str:
@@ -629,6 +679,21 @@ class AssistantResponseRenderer:
 
     def _clean_sentence(self, text: str) -> str:
         return str(text or "").strip().rstrip("。；;")
+
+    def _task_text(self, task: TaskItem | None) -> str:
+        if task is None:
+            return ""
+        return " ".join(
+            str(part or "")
+            for part in (task.title, task.description, task.acceptance)
+        ).lower()
+
+    def _contains_any(self, text: str, markers: tuple[str, ...]) -> bool:
+        return any(marker.lower() in text for marker in markers)
+
+    def _contains_patch(self, text: str) -> bool:
+        body = str(text or "")
+        return "--- " in body or "@@" in body or "diff" in body.lower()
 
 
 @dataclass
@@ -751,6 +816,10 @@ class AgenticTaskCoordinator:
                             "summary": failed_task.summary,
                             "answer": "",
                             "tool_trace": [],
+                            "task_outcome": "blocked",
+                            "task_reason": "dependency_failed",
+                            "tool_success_count": 0,
+                            "tool_error_count": 0,
                         }
                     ]
                 )[0]
@@ -792,8 +861,9 @@ class AgenticTaskCoordinator:
                 if self._prefer_as_final_answer(candidate_answer, last_nonempty_answer):
                     last_nonempty_answer = candidate_answer
 
-            summary = self.renderer.summarize_task_result(turn)
-            if self.renderer.task_succeeded(turn):
+            evaluation = self.renderer.evaluate_task_result(running_task, turn)
+            summary = self.renderer.summarize_task_result(turn, evaluation)
+            if evaluation["succeeded"]:
                 final_task = board.mark_done(task.id, summary=summary)
             else:
                 final_task = board.mark_failed(task.id, summary=summary)
@@ -808,6 +878,10 @@ class AgenticTaskCoordinator:
                         "summary": final_task.summary,
                         "answer": turn.answer,
                         "tool_trace": tool_trace,
+                        "task_outcome": "completed" if evaluation["succeeded"] else "incomplete",
+                        "task_reason": str(evaluation["reason"]),
+                        "tool_success_count": int(evaluation["tool_success_count"]),
+                        "tool_error_count": int(evaluation["tool_error_count"]),
                     }
                 ]
             )[0]

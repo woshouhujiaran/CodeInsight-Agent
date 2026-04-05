@@ -215,6 +215,7 @@ def test_web_api_post_message_non_stream(tmp_path: Path) -> None:
     assert "这次任务已经按" in body["assistant"]
     assert body["session"]["messages"][-2]["content"] == "请给项目新增健康检查"
     assert len(body["session"]["tasks"]) == 3
+    assert body["task_results"][0]["tool_success_count"] >= 0
 
 
 def test_web_api_rejects_blank_message_payload(tmp_path: Path) -> None:
