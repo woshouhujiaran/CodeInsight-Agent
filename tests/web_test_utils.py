@@ -107,8 +107,15 @@ class FakeAgentFactory:
 @dataclass
 class FakeLLM:
     answer: str
+    """按顺序消耗的答复；用于模式仲裁 + QA 等多轮 generate_text。"""
+    call_answers: list[str] | None = None
     calls: list[dict[str, str | None]] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        self._answer_queue: list[str] = list(self.call_answers or [])
 
     def generate_text(self, prompt: str, system_prompt: str | None = None) -> str:
         self.calls.append({"prompt": prompt, "system_prompt": system_prompt})
+        if self._answer_queue:
+            return self._answer_queue.pop(0)
         return self.answer

@@ -146,7 +146,7 @@ def test_web_service_qa_mode_allows_empty_workspace_and_skips_agent_factory(tmp_
     assert result["session"]["turn_metadata"][-1]["tool_results"] == []
     assert factory.created_agents == []
     assert fake_llm.calls
-    assert "不会自动写入任何本地文件" in fake_llm.calls[0]["prompt"]
+    assert "不会自动写入用户磁盘" in fake_llm.calls[0]["prompt"]
 
 
 def test_web_service_qa_emits_single_full_delta(tmp_path: Path) -> None:
@@ -235,6 +235,32 @@ def test_turn_mode_decider_treats_code_review_requests_as_agentic() -> None:
     assert decider.infer("帮我 review 一下后端代码，找出影响体验的问题") == "agentic"
 
 
+def test_turn_mode_infer_with_meta_marks_ambiguous_project_queries() -> None:
+    decider = TurnModeDecider()
+
+    assert decider.infer_with_meta("当前项目技术栈") == ("qa", True)
+    assert decider.infer_with_meta("git 仓库和 svn 仓库有什么区别") == ("qa", False)
+    assert decider.infer_with_meta("在当前项目里 REST 和 GraphQL 有什么区别") == ("qa", False)
+
+
+def test_web_service_mode_arbitration_then_qa(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root="")
+    fake_llm = FakeLLM(answer="技术栈说明。", call_answers=["qa"])
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=FakeAgentFactory(turns=[build_turn("不应被调用")]),
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(session["session_id"], "当前项目技术栈")
+
+    assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
+    assert len(fake_llm.calls) == 2
+    assert "路由判定器" in (fake_llm.calls[0].get("system_prompt") or "")
+
+
 def test_web_service_qa_prompt_encourages_clarification_for_ambiguous_requests(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root="")
@@ -250,8 +276,8 @@ def test_web_service_qa_prompt_encourages_clarification_for_ambiguous_requests(t
 
     assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
     assert fake_llm.calls
-    assert "先提出 1 到 3 个简短澄清问题" in fake_llm.calls[0]["prompt"]
-    assert "长度、步骤数、语气、结构还是示例数量" in fake_llm.calls[0]["prompt"]
+    assert "一至三个简短澄清问题" in fake_llm.calls[0]["prompt"]
+    assert "调整回答风格" in fake_llm.calls[0]["prompt"]
 
 
 def test_web_service_short_circuits_ambiguous_troubleshooting_requests(tmp_path: Path) -> None:
@@ -409,16 +435,23 @@ def test_web_service_carries_prior_tool_context_into_later_task_prompts(tmp_path
     assert factory.calls[0]["test_command"] == "python -m pytest -q"
 
 
-def test_web_service_agentic_mode_requires_workspace(tmp_path: Path) -> None:
+def test_web_service_agentic_without_workspace_falls_back_to_qa(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root="")
     factory = FakeAgentFactory(turns=[build_turn("不应被调用")])
-    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+    fake_llm = FakeLLM(answer="当前会话未配置工作区，无法直接改仓库；请先设置 workspace_root 或使用问答模式讨论改法。")
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
 
-    with pytest.raises(ValueError, match="workspace_root"):
-        service.chat(session["session_id"], "在这个项目里修复登录 bug")
+    result = service.chat(session["session_id"], "在这个项目里修复登录 bug")
 
     assert factory.created_agents == []
+    assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
+    assert result["assistant"] == fake_llm.answer
 
 
 def test_web_service_stream_emits_session_with_current_user_message(tmp_path: Path) -> None:

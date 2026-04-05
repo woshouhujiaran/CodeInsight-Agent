@@ -78,27 +78,112 @@ def _looks_like_project_review_request(text: str, lowered: str) -> bool:
 
 
 class TurnModeDecider:
+    """区分「纯自然语言 QA」与「需要动工作区的分步任务模式」。"""
+
     _PATH_PATTERN = re.compile(r"(?<!\S)(?:[\w.-]+[\\/])+[\w.-]+")
 
-    def infer(self, user_content: str) -> str:
+    # 明确指向「某套代码/工作区」的语境（避免单独「仓库」触发 git vs svn 类泛问）
+    _PROJECT_SCOPE_MARKERS = (
+        "当前项目",
+        "这个项目",
+        "本仓库",
+        "当前仓库",
+        "在这个项目",
+        "在当前仓库",
+        "在项目中",
+        "在仓库里",
+        "代码库",
+        "workspace_root",
+        "集成到当前项目",
+        "工作区根",
+        "会话工作区",
+    )
+
+    # 需要读/搜/改/跑的具体行动信号（命中则任务模式；避免过短词误伤「二分查找」等术语）
+    _OPERATIONAL_MARKERS = (
+        "定位实现",
+        "定位到",
+        "定位在",
+        "查找文件",
+        "搜索代码",
+        "搜索符号",
+        "列出文件",
+        "列出目录",
+        "找到实现",
+        "找到文件",
+        "帮我找",
+        "找一下",
+        "看看代码",
+        "读一下文件",
+        "读这个文件",
+        "打开文件",
+        "目录结构",
+        "项目结构",
+        "pytest",
+        "unittest",
+        "跑测试",
+        "运行测试",
+        "构建",
+        "打包",
+        "ci ",
+        " ci",
+        "build",
+        "修改",
+        "修复",
+        "重构",
+        "删除",
+        "补丁",
+        "patch",
+        "diff",
+        "应用补丁",
+        "审查",
+        "review",
+        "代码审查",
+        "通读",
+        "全面阅读",
+        "全面检查",
+        "梳理",
+        "过一遍",
+        "读一遍",
+        "哪个文件",
+        "哪些文件",
+        "入口在",
+        "调用链",
+        "从哪里开始看",
+        "怎么验证",
+        "如何验证",
+        "写测试",
+        "新增测试",
+        "列出关键文件",
+        "查找文件",
+        "找到实现",
+        "定位实现",
+        "会话存储实现",
+        "模式判定逻辑",
+        "如何实现",
+        "怎么实现",
+        "怎么做",
+        "在哪实现",
+        "代码在哪",
+        "加字段",
+        "加功能",
+        "集成到",
+        "介绍一下",
+        "介绍下",
+        "说说这个",
+        "讲讲这个",
+        "跑起来",
+    )
+
+    def infer_with_meta(self, user_content: str) -> tuple[str, bool]:
+        """返回 (mode, need_llm_arbitration)。后者为 True 时表示启发式不确定，需再调 LLM 判定。"""
         text = str(user_content or "").strip()
         lowered = text.lower()
+        if not text:
+            return ("qa", False)
 
         if self._PATH_PATTERN.search(text):
-            return "agentic"
-
-        direct_agentic_requests = (
-            "分析并修改",
-            "分析并修复",
-            "请修改",
-            "请修复",
-            "修改当前项目",
-            "修复当前项目",
-            "改造当前项目",
-            "补充最小测试",
-        )
-        if self._contains_any(text, lowered, direct_agentic_requests):
-            return "agentic"
+            return ("agentic", False)
 
         forced_qa_keywords = (
             "qa 模式",
@@ -111,28 +196,27 @@ class TurnModeDecider:
             "不要写本地",
         )
         if self._contains_any(text, lowered, forced_qa_keywords):
-            return "qa"
+            return ("qa", False)
+
+        direct_agentic_requests = (
+            "分析并修改",
+            "分析并修复",
+            "请修改",
+            "请修复",
+            "修改当前项目",
+            "修复当前项目",
+            "改造当前项目",
+            "补充最小测试",
+        )
+        if self._contains_any(text, lowered, direct_agentic_requests):
+            return ("agentic", False)
+
+        explicit_task_mode = ("agent 模式", "agent模式", "任务模式")
+        if self._contains_any(text, lowered, explicit_task_mode):
+            return ("agentic", False)
 
         if _looks_like_project_review_request(text, lowered):
-            return "agentic"
-
-        forced_agentic_keywords = (
-            "agent 模式",
-            "agent模式",
-            "任务模式",
-            "这个项目",
-            "当前项目",
-            "当前仓库",
-            "代码库",
-            "仓库",
-            "workspace",
-            "workspace_root",
-            "在这个项目里",
-            "在当前仓库里",
-            "集成到当前项目",
-        )
-        if self._contains_any(text, lowered, forced_agentic_keywords):
-            return "agentic"
+            return ("agentic", False)
 
         readonly_project_keywords = (
             "不修改文件",
@@ -147,7 +231,7 @@ class TurnModeDecider:
             "模式判定逻辑",
         )
         if self._contains_any(text, lowered, readonly_project_keywords):
-            return "agentic"
+            return ("agentic", False)
 
         project_ops = (
             "pytest",
@@ -161,11 +245,11 @@ class TurnModeDecider:
             "test",
         )
         if self._contains_any(text, lowered, project_ops):
-            return "agentic"
+            return ("agentic", False)
         if ("测试" in text or "test" in lowered) and self._contains_any(
             text, lowered, ("跑", "运行", "挂了", "失败", "总结", "summary")
         ):
-            return "agentic"
+            return ("agentic", False)
 
         code_change_markers = ("新增", "修改", "修复", "重构", "删除", "补丁", "diff", "patch")
         code_targets = (
@@ -185,7 +269,10 @@ class TurnModeDecider:
             "配置",
         )
         if self._contains_any(text, lowered, code_change_markers) and self._contains_any(text, lowered, code_targets):
-            return "agentic"
+            return ("agentic", False)
+
+        if self._contains_any(text, lowered, self._OPERATIONAL_MARKERS):
+            return ("agentic", False)
 
         qa_keywords = (
             "算法",
@@ -200,6 +287,8 @@ class TurnModeDecider:
             "讲解",
             "原理",
             "区别",
+            "差别",
+            "不同",
             "是什么",
             "为什么",
             "如何证明",
@@ -226,14 +315,26 @@ class TurnModeDecider:
             "格式",
             "先问我",
             "澄清",
+            "指什么",
+            "何意",
+            "是啥",
+            "啥是",
+            "意味着",
         )
         if self._contains_any(text, lowered, qa_keywords):
-            return "qa"
+            return ("qa", False)
 
         if text.endswith(("?", "？")):
-            return "qa"
+            return ("qa", False)
 
-        return "qa"
+        if self._contains_any(text, lowered, self._PROJECT_SCOPE_MARKERS):
+            return ("qa", True)
+
+        return ("qa", False)
+
+    def infer(self, user_content: str) -> str:
+        mode, _ = self.infer_with_meta(user_content)
+        return mode
 
     @staticmethod
     def _contains_any(text: str, lowered: str, keywords: tuple[str, ...]) -> bool:
@@ -451,46 +552,6 @@ class AssistantResponseRenderer:
         if not turn.tool_trace:
             return answer_ok
         return answer_ok and any(item.get("status") == "ok" for item in turn.tool_trace)
-
-    def summarize_task_result(self, turn: AgenticTurnResult) -> str:
-        answer = turn.answer.strip()
-        if answer:
-            return answer[:240]
-        if turn.tool_trace:
-            ok_count = sum(1 for item in turn.tool_trace if item.get("status") == "ok")
-            return f"完成 {len(turn.tool_trace)} 次工具调用，其中 {ok_count} 次成功。"
-        return "未获得有效结果。"
-
-    def compose_final_answer(
-        self,
-        board: TaskBoard,
-        last_answer: str,
-        last_test_summary: dict[str, Any] | None,
-    ) -> str:
-        lines: list[str] = ["任务执行结果："]
-        for index, task in enumerate(board.ordered_tasks(), start=1):
-            detail = task.summary or task.acceptance
-            lines.append(f"{index}. {task.title} [{task.status}] {detail}")
-        if last_test_summary:
-            status_text = "通过" if last_test_summary.get("passed") else "失败"
-            lines.append("")
-            lines.append(
-                "最近一次测试："
-                f"{status_text}，耗时 {last_test_summary.get('duration_ms', 0)} ms，"
-                f"命令 {last_test_summary.get('command', '')}"
-            )
-        if last_answer:
-            lines.append("")
-            lines.append("最终回复：")
-            lines.append(last_answer)
-        return "\n".join(lines).strip()
-
-    def chunk_text(self, text: str, *, chunk_size: int = 160) -> list[str]:
-        body = str(text or "")
-        if not body:
-            return [""]
-        return [body[index : index + chunk_size] for index in range(0, len(body), chunk_size)]
-
 
     def summarize_task_result(self, turn: AgenticTurnResult) -> str:
         answer = turn.answer.strip()
@@ -928,7 +989,9 @@ class AgenticTaskCoordinator:
             f"命令执行权限：{'开启' if settings.get('allow_shell') else '关闭'}\n\n"
             f"测试命令：{test_command or '未配置'}\n\n"
             "请围绕当前任务行动；若前序结果已经确认文件路径、函数名、报错或测试命令，请直接复用，"
-            "不要无意义地重新从零检索。若权限不足，输出结构化补丁建议或手动编辑步骤。"
+            "不要无意义地重新从零检索。若权限不足，输出结构化补丁建议或手动编辑步骤。\n\n"
+            "面向用户的最终说明优先用连贯自然段组织；内部步骤已在任务板体现，无需再把正文写成第二份任务分解清单，"
+            "除非用户明确要求分点或验收条目必须逐条列出。"
         )
 
     def _format_prior_tool_context(self, tool_trace: list[dict[str, Any]], *, max_items: int = 6) -> str:

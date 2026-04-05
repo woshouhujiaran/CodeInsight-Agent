@@ -23,6 +23,10 @@ from app.web.chat_components import (
 )
 from app.web.session_store import SessionStore, derive_session_title, normalize_session_settings
 from app.web.streaming import StreamWorker
+from app.web.turn_mode import arbitrate_turn_mode
+
+_QA_SYSTEM_PROMPT = """你是面向 Web 用户的代码问答助手。
+先判断用户问题属于哪一类（概念、因果、操作步骤、对比、简短事实等），再选用最贴切的表达方式：解释原理、设计取舍、背景原因时优先用连贯自然段；不要把每个观点都改成编号条目。只有在操作教程、调试顺序、并列对比、参数或检查清单等场景，才用分级标题或小列表。整体读起来应像清晰的技术说明，而不是机械罗列的要点。"""
 
 
 class WebAgentService:
@@ -351,11 +355,19 @@ class WebAgentService:
 
         emit({"event": "stream_profile", "data": {"kind": "phased"}})
         safety_refusal = self.safety_guard.review(user_content)
-        mode = "qa" if safety_refusal is not None else self.mode_decider.infer(user_content)
+        snapshot = self.session_store.get_session(session_id)
+        if safety_refusal is not None:
+            mode = "qa"
+        else:
+            mode, need_mode_arbitration = self.mode_decider.infer_with_meta(user_content)
+            if need_mode_arbitration:
+                mode = arbitrate_turn_mode(self.llm_factory(), user_content, fallback=mode)
+            workspace_raw = str(snapshot.get("workspace_root") or "").strip()
+            if mode == "agentic" and not workspace_raw:
+                mode = "qa"
         clarification_prompt = None
         if safety_refusal is None and mode == "qa":
             clarification_prompt = self.clarification_guard.review(user_content)
-        snapshot = self.session_store.get_session(session_id)
         settings = normalize_session_settings(snapshot.get("settings"))
         memory = ConversationMemory.from_snapshot(snapshot)
         history_before_turn = memory.get_messages()
@@ -481,7 +493,7 @@ class WebAgentService:
         cancel_event: Any | None = None,
     ) -> dict[str, Any]:
         prompt = self._build_qa_prompt(user_content=user_content, history=history)
-        answer = str(llm.generate_text(prompt=prompt, system_prompt="你是面向 Web 用户的代码问答助手。") or "")
+        answer = str(llm.generate_text(prompt=prompt, system_prompt=_QA_SYSTEM_PROMPT) or "")
         return self._finalize_text_turn(
             memory=memory,
             snapshot=snapshot,
@@ -537,16 +549,21 @@ class WebAgentService:
         ]
         history_text = "\n".join(recent_history) if recent_history else "(no prior messages)"
         return (
-            "当前处于 QA 模式，请把自己当作纯对话问答助手，而不是项目执行代理。\n"
-            "回答要求：\n"
-            "1. 仅基于用户问题和对话历史回答，不假设能访问本地工作区、仓库文件或真实路径。\n"
-            "2. 不要声称已经修改文件、创建文件、运行测试、执行命令，或读取了当前项目内容。\n"
-            "3. 如需代码，只给示例代码片段，并明确这是示例，不会自动写入任何本地文件。\n"
-            "4. 不要生成任务列表或任务板，直接给清晰说明即可。\n"
-            "5. 如果用户信息不完整、存在多种理解方式，或请求明显依赖尚未提供的上下文，先提出 1 到 3 个简短澄清问题，不要自行假设。\n"
-            "6. 如果用户是在调整回答风格或格式偏好，先确认他最想调整的是长度、步骤数、语气、结构还是示例数量。\n"
-            "7. 如果用户存在明显错别字、空格断裂或口语化表达，请按最合理含义理解；必要时可先说明你的理解再回答。\n"
-            "8. 如果请求涉及越权、泄露敏感信息、绕过认证或破坏性操作，明确拒绝，并给更安全的替代建议。\n\n"
+            "当前处于 QA 模式：你是纯对话问答助手，不是会读写本地仓库、执行命令的项目代理。\n\n"
+            "【回答体裁】请针对「当前问题」选形式，避免凡事先列一堆要点。\n"
+            "概念、原理、因果、设计取舍、架构思路：以多段自然叙述为主，可少量强调关键术语；不要为了整齐把本可连成段的文字拆成「1.2.3.」。\n"
+            "操作步骤、安装部署、严格顺序的调试流程：用编号步骤或有序列表。\n"
+            "并列对比（如方案 A/B、技术选型）：可用小标题或简短列表，仍优先保证每块内有完整句子。\n"
+            "一句话能答清的事实或定义：一至两段即可，不必搭章节。\n"
+            "若不确定，默认用连贯段落；列表仅用于确有并列或顺序关系的内容。\n\n"
+            "【行为边界】仅根据用户问题与下方对话历史作答；不要假设已读取工作区、真实路径或运行过任何命令。"
+            "不要声称已修改文件、创建文件、跑测试或执行 shell。"
+            "需要代码时只给示例片段，并标明为示例、不会自动写入用户磁盘。"
+            "不要生成任务看板、代办清单或对当前对话做「子任务拆解」式排版（与任务模式区分）。"
+            "关键信息缺失或存在多种合理解读时，先提出一至三个简短澄清问题，勿擅自替用户选定假设。"
+            "若用户本条主要是在调整回答风格（更短、更口语、更少列表等），可先一句话确认其偏好，再按该偏好作答。"
+            "有明显错别字或断词时按最合理含义理解，必要时先说明你的理解。"
+            "涉及越权、泄露敏感信息、绕过认证或破坏性操作时，明确拒绝并给出更安全的替代做法。\n\n"
             f"[对话历史]\n{history_text}\n\n"
             f"[当前问题]\n{user_content}\n"
         )
