@@ -391,7 +391,10 @@ class WebAgentService:
             and workspace_raw
             and not settings.get("allow_write")
             and not settings.get("allow_shell")
-            and self._looks_like_vague_project_optimization_request(user_content)
+            and (
+                self._looks_like_vague_project_optimization_request(user_content)
+                or self._looks_like_analysis_first_request(user_content)
+            )
         ):
             mode = "workspace_qa"
         memory = ConversationMemory.from_snapshot(snapshot)
@@ -702,6 +705,19 @@ class WebAgentService:
         return any(marker in text or marker in lowered for marker in project_markers) and any(
             marker in text or marker in lowered for marker in optimization_markers
         )
+
+    def _looks_like_analysis_first_request(self, user_content: str) -> bool:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        analysis_markers = (
+            "先分析",
+            "先看",
+            "改哪些文件",
+            "要改哪些文件",
+            "会改到哪些文件",
+            "影响哪些文件",
+        )
+        return any(marker in text or marker in lowered for marker in analysis_markers)
 
     def _sync_session_title(self, snapshot: dict[str, Any]) -> None:
         if snapshot.get("title_overridden"):
