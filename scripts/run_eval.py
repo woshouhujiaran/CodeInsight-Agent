@@ -32,7 +32,7 @@ DEFAULT_TASKS: list[TaskSpec] = [
     {
         "name": "retrieval_session_store",
         "kind": "retrieval_expectation",
-        "query": "session store persistence history",
+        "query": "SessionStore save_session session_id snapshot",
         "expected_path_contains": "app/web/session_store.py",
         "top_k": 5,
     },

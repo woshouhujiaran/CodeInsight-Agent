@@ -17,7 +17,18 @@ class CodeIngestor:
         chunk_size: int = 500,
         chunk_overlap: int = 50,
         batch_size: int = 256,
-        excluded_dirs: tuple[str, ...] = (".git", ".pytest_cache", "__pycache__", ".venv", "venv"),
+        excluded_dirs: tuple[str, ...] = (
+            ".git",
+            ".pytest_cache",
+            "__pycache__",
+            ".venv",
+            "venv",
+            "outputs",
+            "data",
+            "build",
+            "dist",
+            "coverage",
+        ),
         logger_name: str = "codeinsight.rag.ingest",
     ) -> None:
         self.store = store

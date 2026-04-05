@@ -82,3 +82,20 @@ def test_force_reindex_rebuilds(tmp_path: Path) -> None:
     load_or_build_vector_store(str(code_dir), index_dir, emb, force_reindex=True)
     m = read_index_meta(index_dir)
     assert m is not None
+
+
+def test_load_or_build_excludes_generated_output_directories(tmp_path: Path) -> None:
+    code_dir = tmp_path / "cb3"
+    code_dir.mkdir()
+    (code_dir / "service.py").write_text("def keep_me():\n    return 'ok'\n", encoding="utf-8")
+    outputs_dir = code_dir / "outputs"
+    outputs_dir.mkdir()
+    (outputs_dir / "noise.py").write_text("def noise():\n    return 'noisy'\n", encoding="utf-8")
+
+    index_dir = tmp_path / "idx3"
+    emb = HashEmbedding(dim=384)
+    store, _meta = load_or_build_vector_store(str(code_dir), index_dir, emb, force_reindex=False)
+
+    paths = [doc.file_path for doc in store.documents]
+    assert any("service.py" in path for path in paths)
+    assert all("outputs" not in path for path in paths)

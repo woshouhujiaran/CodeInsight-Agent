@@ -25,7 +25,18 @@ DEFAULT_INCLUDE_SUFFIXES: tuple[str, ...] = (
     ".tsx",
     ".java",
 )
-DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (".git", ".pytest_cache", "__pycache__", ".venv", "venv")
+DEFAULT_EXCLUDED_DIRS: tuple[str, ...] = (
+    ".git",
+    ".pytest_cache",
+    "__pycache__",
+    ".venv",
+    "venv",
+    "outputs",
+    "data",
+    "build",
+    "dist",
+    "coverage",
+)
 
 
 def compute_vector_store_snapshot(codebase_dir: str) -> str:
