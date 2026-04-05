@@ -380,6 +380,8 @@ class WebAgentService:
                 )
             if workspace_raw and self._looks_like_specific_file_explanation_request(user_content):
                 mode = "workspace_qa"
+            if workspace_raw and mode == "qa" and self._should_continue_workspace_analysis(snapshot, user_content):
+                mode = "workspace_qa"
             if mode in {"agentic", "workspace_qa"} and not workspace_raw:
                 mode = "qa"
         clarification_prompt = None
@@ -757,6 +759,46 @@ class WebAgentService:
         return any(marker in text or marker in lowered for marker in readonly_markers) and any(
             marker in text or marker in lowered for marker in locate_markers
         ) and not any(marker in text or marker in lowered for marker in write_or_verify_markers)
+
+    def _should_continue_workspace_analysis(self, snapshot: dict[str, Any], user_content: str) -> bool:
+        settings = normalize_session_settings(snapshot.get("settings"))
+        if settings.get("allow_write") or settings.get("allow_shell"):
+            return False
+        turn_metadata = snapshot.get("turn_metadata") or []
+        if not turn_metadata:
+            return False
+        previous_mode = str(turn_metadata[-1].get("mode") or "")
+        if previous_mode not in {"workspace_qa", "agentic"}:
+            return False
+
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        explicit_qa_markers = ("回到问答模式", "qa 模式", "qa模式", "问答模式", "解释给非技术同学听")
+        followup_markers = (
+            "基于你刚才",
+            "基于刚才",
+            "基于上一步",
+            "刚才找到的",
+            "刚才那个位置",
+            "那些文件",
+            "这些文件",
+            "这些位置",
+            "在你刚才找到的位置",
+        )
+        repository_markers = (
+            "测试点",
+            "补测试",
+            "关键文件",
+            "文件",
+            "位置",
+            "实现",
+            "逻辑",
+            "验证",
+            "调用链",
+        )
+        return not any(marker in text or marker in lowered for marker in explicit_qa_markers) and any(
+            marker in text or marker in lowered for marker in followup_markers
+        ) and any(marker in text or marker in lowered for marker in repository_markers)
 
     def _sync_session_title(self, snapshot: dict[str, Any]) -> None:
         if snapshot.get("title_overridden"):

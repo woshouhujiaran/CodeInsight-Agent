@@ -617,6 +617,66 @@ def test_web_service_readonly_location_request_with_verification_stays_agentic(t
     assert [task["title"] for task in result["session"]["tasks"]] == ["定位相关文件", "总结当前实现", "说明验证方法"]
 
 
+def test_web_service_readonly_followup_keeps_workspace_qa_after_workspace_analysis(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("主要看 `app/web/service.py` 和 `app/web/chat_components.py`。", [{"tool": "read_file_tool", "status": "ok"}]),
+            build_turn("最值得补的是模式继承和只读降级这两个测试点。", [{"tool": "read_file_tool", "status": "ok"}]),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    first = service.chat(
+        session["session_id"],
+        "先帮我在当前项目里定位 Web 会话的模式判定逻辑，不修改文件。",
+    )
+    second = service.chat(
+        session["session_id"],
+        "基于你刚才找到的位置，再列出两个最值得补的测试点，还是先不改代码。",
+    )
+
+    assert first["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert second["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert len(factory.created_agents) == 2
+    assert len(factory.created_agents[0].recorded_prompts) == 1
+    assert len(factory.created_agents[1].recorded_prompts) == 1
+
+
+def test_web_service_followup_can_still_switch_back_to_qa_explicitly(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[build_turn("主要看 `app/web/session_store.py`。", [{"tool": "read_file_tool", "status": "ok"}])]
+    )
+    fake_llm = FakeLLM(answer="刚才的结论可以理解成：系统把聊天记录保存在本地文件里。")
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
+
+    service.chat(
+        session["session_id"],
+        "先帮我在当前项目里找到会话存储实现，不改文件。",
+    )
+    result = service.chat(
+        session["session_id"],
+        "现在回到问答模式，解释给非技术同学听：刚才结论是什么意思？",
+    )
+
+    assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
+    assert fake_llm.calls
+
+
 def test_web_service_compact_board_omits_task_preamble_in_final_answer(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(
