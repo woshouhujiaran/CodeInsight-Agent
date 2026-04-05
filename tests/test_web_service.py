@@ -272,6 +272,18 @@ def test_turn_mode_infer_with_meta_marks_ambiguous_project_queries() -> None:
     assert decider.infer_with_meta("在当前项目里 REST 和 GraphQL 有什么区别") == ("qa", False)
 
 
+def test_turn_mode_decider_prefers_workspace_qa_for_file_explanation_queries() -> None:
+    decider = TurnModeDecider()
+
+    assert decider.infer("分析 app/web/service.py 在做什么。") == "workspace_qa"
+
+
+def test_turn_mode_decider_treats_add_api_requests_as_agentic() -> None:
+    decider = TurnModeDecider()
+
+    assert decider.infer("帮我给当前项目新增一个 /healthz API，并补最小测试。先自己分析再动手。") == "agentic"
+
+
 def test_web_service_mode_arbitration_then_qa(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root="")

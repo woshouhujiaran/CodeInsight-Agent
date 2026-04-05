@@ -265,6 +265,9 @@ class TurnModeDecider:
         if not text:
             return ("qa", False)
 
+        if self._looks_like_workspace_file_explanation_request(text, lowered):
+            return ("workspace_qa", False)
+
         if self._PATH_PATTERN.search(text):
             return ("agentic", False)
 
@@ -347,9 +350,10 @@ class TurnModeDecider:
         ):
             return ("agentic", False)
 
-        code_change_markers = ("新增", "修改", "修复", "重构", "删除", "补丁", "diff", "patch")
+        code_change_markers = ("新增", "添加", "修改", "修复", "重构", "删除", "补丁", "diff", "patch")
         code_targets = (
             "接口",
+            "api",
             "文件",
             "代码",
             "bug",
@@ -487,6 +491,45 @@ class TurnModeDecider:
             text,
             lowered,
             action_markers,
+        )
+
+    def _looks_like_workspace_file_explanation_request(self, text: str, lowered: str) -> bool:
+        if not self._PATH_PATTERN.search(text):
+            return False
+        explanation_markers = (
+            "分析",
+            "介绍",
+            "说明",
+            "讲讲",
+            "说说",
+            "总结",
+            "在做什么",
+            "做什么",
+            "什么意思",
+            "作用",
+        )
+        write_or_run_markers = (
+            "修改",
+            "修复",
+            "新增",
+            "添加",
+            "重构",
+            "删除",
+            "补丁",
+            "patch",
+            "diff",
+            "跑测试",
+            "运行测试",
+            "pytest",
+            "构建",
+            "build",
+            "执行",
+            "运行",
+        )
+        return self._contains_any(text, lowered, explanation_markers) and not self._contains_any(
+            text,
+            lowered,
+            write_or_run_markers,
         )
 
     @staticmethod
