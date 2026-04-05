@@ -21,6 +21,23 @@
     const CHANGE_SUMMARY_DEBOUNCE_MS = 560;
     const WORKSPACE_AUTO_SYNC_MS = 2500;
     const TREE_ROOT_PATH = ".";
+    const WORKSPACE_TREE_QUERY = "path=.&depth=8&max_entries=400";
+    const API_ROUTES = Object.freeze({
+      sessions: "/sessions",
+      evalLatest: "/eval/latest",
+      pickFolder: "/system/pick-folder",
+      pickFile: "/system/pick-file"
+    });
+    const SSE_EVENTS = Object.freeze({
+      streamProfile: "stream_profile",
+      session: "session",
+      taskBoard: "task_board",
+      taskUpdate: "task_update",
+      assistantDelta: "assistant_delta",
+      assistantFinal: "assistant_final",
+      testSummary: "test_summary",
+      error: "error"
+    });
     const FILE_ICON_TYPES = {
       ".py": "python",
       ".js": "javascript",
@@ -734,7 +751,7 @@
 
     function canEditActiveFile() {
       const file = getActiveFile();
-      return !!file && !!state.currentSession?.settings?.allow_write && !file.truncated && !state.streamController;
+      return !!file && !!state.currentSession?.settings?.allow_write && !file.truncated && !isBusy();
     }
 
     function canSaveActiveFile() {
@@ -816,10 +833,24 @@
       renderEditor({ refreshSummary: false });
     }
 
+    function isBusy() {
+      return !!state.streamController;
+    }
+
+    function ensureNotBusy() {
+      if (!isBusy()) return false;
+      setStatus("璇峰厛绛夊緟褰撳墠娴佸紡杩愯缁撴潫銆?");
+      return true;
+    }
+
     async function fetchJson(url, options = {}) {
+      const headers = new Headers(options.headers || undefined);
+      if (options.body != null && !headers.has("Content-Type")) {
+        headers.set("Content-Type", "application/json");
+      }
       const response = await fetch(url, {
-        headers: { "Content-Type": "application/json" },
-        ...options
+        ...options,
+        headers
       });
       const body = await response.json().catch(() => null);
       if (!response.ok) {
@@ -1544,7 +1575,7 @@
     }
 
     async function refreshSessions() {
-      state.sessions = await fetchJson("/sessions");
+      state.sessions = await fetchJson(API_ROUTES.sessions);
       renderSessions();
     }
 
@@ -1553,7 +1584,7 @@
         setStatus("请先等待当前流式运行结束。");
         return null;
       }
-      const updated = await fetchJson(`/sessions/${sessionId}`, {
+      const updated = await fetchJson(`${API_ROUTES.sessions}/${sessionId}`, {
         method: "PATCH",
         body: JSON.stringify(payload)
       });
@@ -1578,7 +1609,7 @@
       }
       if (state.currentSession?.session_id === id) return;
       if (hasDirtyOpenFiles() && !window.confirm("切换会话会丢失未保存的文件修改。是否继续？")) return;
-      state.currentSession = await fetchJson(`/sessions/${id}`);
+      state.currentSession = await fetchJson(`${API_ROUTES.sessions}/${id}`);
       persistActiveSessionId(state.currentSession.session_id);
       upsertSessionSummary(state.currentSession);
       applySessionToControls(state.currentSession);
@@ -1596,7 +1627,7 @@
         setStatus("请先等待当前流式运行结束。");
         return;
       }
-      const session = await fetchJson("/sessions", {
+      const session = await fetchJson(API_ROUTES.sessions, {
         method: "POST",
         body: JSON.stringify({
           workspace_root: els.workspaceInput.value.trim(),
@@ -1635,7 +1666,7 @@
         if (!silent) setStatus("设置已同步。");
         return state.currentSession;
       }
-      state.currentSession = await fetchJson(`/sessions/${state.currentSession.session_id}`, {
+      state.currentSession = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}`, {
         method: "PATCH",
         body: JSON.stringify(payload)
       });
@@ -1662,7 +1693,7 @@
         return;
       }
       const isFile = kind === "file";
-      const endpoint = isFile ? "/system/pick-file" : "/system/pick-folder";
+      const endpoint = isFile ? API_ROUTES.pickFile : API_ROUTES.pickFolder;
       try {
         setStatus(isFile ? "正在打开文件选择器..." : "正在打开文件夹选择器...");
         const payload = await fetchJson(endpoint, { method: "POST" });
@@ -1710,7 +1741,7 @@
         renderWorkspaceTree();
         return;
       }
-      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
+      const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/tree?${WORKSPACE_TREE_QUERY}`);
       state.workspaceEntries = payload.entries || [];
       state.workspaceTreeModel = null;
       state.workspaceNodeIndex = new Map();
@@ -1728,7 +1759,7 @@
       }
       if (existing?.dirty && forceReload && !window.confirm(`重新加载 ${existing.path} 会覆盖未保存修改。是否继续？`)) return;
       if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
-      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file?path=${encodeURIComponent(normalizedPath)}`);
+      const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/file?path=${encodeURIComponent(normalizedPath)}`);
       const revision = nextFileRevision();
       upsertOpenFile({
         path: payload.path,
@@ -1780,7 +1811,7 @@
         renderEditor();
         return;
       }
-      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file`, {
+      const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/file`, {
         method: "PUT",
         body: JSON.stringify({
           path: file.path,
@@ -1904,7 +1935,11 @@
     }
 
     function handleStreamEvent(eventName, data) {
-      if (eventName === "session") {
+      if (eventName === SSE_EVENTS.streamProfile) {
+        if (data?.kind === "phased") setStatus("闃舵娴佽繑鍥炰腑...");
+        return;
+      }
+      if (eventName === SSE_EVENTS.session) {
         state.currentSession = data;
         persistActiveSessionId(state.currentSession.session_id);
         upsertSessionSummary(state.currentSession);
@@ -1916,12 +1951,12 @@
         renderSessions();
         return;
       }
-      if (eventName === "task_board") {
+      if (eventName === SSE_EVENTS.taskBoard) {
         if (state.currentSession) state.currentSession.tasks = data;
         renderTasks(data);
         return;
       }
-      if (eventName === "task_update") {
+      if (eventName === SSE_EVENTS.taskUpdate) {
         if (!state.currentSession) return;
         const tasks = state.currentSession.tasks || [];
         const id = data.task_id || data.id;
@@ -1930,7 +1965,7 @@
         renderTasks(state.currentSession.tasks);
         return;
       }
-      if (eventName === "assistant_delta") {
+      if (eventName === SSE_EVENTS.assistantDelta) {
         state.pendingAssistantText += data.content || "";
         if (state.pendingAssistantEl) {
           state.pendingAssistantEl.classList.remove("loading");
@@ -1939,18 +1974,18 @@
         }
         return;
       }
-      if (eventName === "assistant_final") {
+      if (eventName === SSE_EVENTS.assistantFinal) {
         if (state.pendingAssistantEl) {
           state.pendingAssistantEl.classList.remove("loading");
           state.pendingAssistantEl.textContent = data.content || state.pendingAssistantText;
         }
         return;
       }
-      if (eventName === "test_summary") {
+      if (eventName === SSE_EVENTS.testSummary) {
         renderTestSummary(data);
         return;
       }
-      if (eventName === "error") {
+      if (eventName === SSE_EVENTS.error) {
         clearPendingAssistant();
         if (state.currentSession) renderMessages(state.currentSession);
         setStreamTerminalStatus(data.message || "流式执行失败。");
@@ -1988,7 +2023,7 @@
       state.streamTerminalStatus = "";
       setStreamingControls(true);
       try {
-        const response = await fetch(`/sessions/${state.currentSession.session_id}/messages?stream=1`, {
+        const response = await fetch(`${API_ROUTES.sessions}/${state.currentSession.session_id}/messages?stream=1`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ content }),
@@ -2032,7 +2067,7 @@
       setStatus("保存设置并运行测试...");
       try {
         await persistCurrentControls({ silent: true, refreshWorkspace: false });
-        const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/tests/run`, { method: "POST" });
+        const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/tests/run`, { method: "POST" });
         state.currentSession = payload.session;
         persistActiveSessionId(state.currentSession.session_id);
         upsertSessionSummary(state.currentSession);
@@ -2060,7 +2095,7 @@
       const target = state.sessions.find(session => session.session_id === sessionId);
       const title = target?.title || "该会话";
       if (!window.confirm(`确认永久删除会话“${title}”？此操作无法恢复。`)) return;
-      await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
+      await fetchJson(`${API_ROUTES.sessions}/${sessionId}`, { method: "DELETE" });
       state.sessions = state.sessions.filter(session => session.session_id !== sessionId);
       if (readActiveSessionId() === sessionId) persistActiveSessionId("");
       renderSessions();
@@ -2082,7 +2117,7 @@
       const nextFilter = normPath(state.currentSession.workspace_root);
       if (!window.confirm(`确认永久删除会话“${title}”？这会移除消息、任务、最近测试记录和当前会话设置，且无法恢复。`)) return;
       try {
-        await fetchJson(`/sessions/${sessionId}`, { method: "DELETE" });
+        await fetchJson(`${API_ROUTES.sessions}/${sessionId}`, { method: "DELETE" });
         state.sessions = state.sessions.filter(session => session.session_id !== sessionId);
         persistActiveSessionId("");
         state.currentSession = null;
@@ -2306,7 +2341,7 @@
         renderEditor({ refreshSummary: false });
         return false;
       }
-      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
+      const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/tree?${WORKSPACE_TREE_QUERY}`);
       const changed = applyWorkspaceTreePayload(payload);
       await syncActiveFileFromWorkspace({ quiet: true });
       renderWorkspaceMeta();
@@ -2326,7 +2361,7 @@
       }
       if (existing?.dirty && forceReload && !window.confirm(`重新加载 ${existing.path} 会覆盖未保存修改。是否继续？`)) return existing;
       if (!skipPersist) await persistCurrentControls({ silent: true, refreshWorkspace: false });
-      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file?path=${encodeURIComponent(normalizedPath)}`);
+      const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/file?path=${encodeURIComponent(normalizedPath)}`);
       const revision = nextFileRevision();
       const entry = getWorkspaceEntry(payload.path) || getWorkspaceEntry(normalizedPath);
       upsertOpenFile({
@@ -2388,7 +2423,7 @@
         renderEditor({ refreshSummary: false });
         return;
       }
-      const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/file`, {
+      const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/file`, {
         method: "PUT",
         body: JSON.stringify({
           path: file.path,
@@ -2457,7 +2492,7 @@
       if (workspaceSyncInFlight || !state.currentSession?.workspace_root || document.hidden) return false;
       workspaceSyncInFlight = true;
       try {
-        const payload = await fetchJson(`/sessions/${state.currentSession.session_id}/workspace/tree?path=.&depth=8&max_entries=2000`);
+        const payload = await fetchJson(`${API_ROUTES.sessions}/${state.currentSession.session_id}/workspace/tree?${WORKSPACE_TREE_QUERY}`);
         const nextEntries = Array.isArray(payload?.entries) ? payload.entries : [];
         const nextNote = String(payload?.note || "");
         const nextSnapshotKey = workspaceSnapshotKey(nextEntries);
@@ -2641,7 +2676,7 @@
 
     Promise.allSettled([
       refreshSessions(),
-      fetchJson("/eval/latest").then(renderEval)
+      fetchJson(API_ROUTES.evalLatest).then(renderEval)
     ]).then(async results => {
       const [sessionsResult, evalResult] = results;
       if (sessionsResult.status === "rejected") throw sessionsResult.reason;

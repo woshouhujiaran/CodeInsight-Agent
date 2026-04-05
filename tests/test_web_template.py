@@ -22,12 +22,16 @@ def _read_index_script() -> str:
 def test_index_template_includes_stream_cancel_and_multiline_sse_guards() -> None:
     script = _read_index_script()
 
+    assert "const SSE_EVENTS = Object.freeze(" in script
+    assert "const API_ROUTES = Object.freeze(" in script
+    assert "function ensureNotBusy()" in script
+    assert 'if (options.body != null && !headers.has("Content-Type")) {' in script
     assert 'dataLines.join("\\n")' in script
     assert 'setStreamTerminalStatus("已取消")' in script
     assert 'sendBtnEl.textContent = busy ? "停止 Stop" : "发送";' in script
     assert "runTestsBtnEl.disabled = busy;" in script
     assert "saveSettingsBtnEl.disabled = busy;" in script
-    assert 'if (eventName === "error")' in script
+    assert 'if (eventName === SSE_EVENTS.error)' in script
     assert "scheduleChangeSummaryRender();" in script
 
 
@@ -75,6 +79,8 @@ def test_index_template_links_external_assets() -> None:
     assert "<script>" not in html
     assert INDEX_STYLESHEET_PATH.exists()
     assert INDEX_SCRIPT_PATH.exists()
+    assert 'aria-label="调整文件面板宽度"' in html
+    assert 'aria-label="调整会话面板宽度"' in html
 
 
 def test_index_script_is_valid_javascript() -> None:
