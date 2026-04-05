@@ -524,6 +524,30 @@ def test_web_service_uses_compact_board_when_user_wants_analysis_before_editing(
     assert len(factory.created_agents[0].recorded_prompts) == 3
 
 
+def test_web_service_compact_board_omits_task_preamble_in_final_answer(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("已定位候选文件。"),
+            build_turn("主要需要看 `app/web/main.py` 和 `app/web/service.py`。"),
+            build_turn("先从路由入口和服务层边界开始验证即可。"),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(
+        session["session_id"],
+        "帮我实现一个健康检查 API，先分析应该改哪些文件",
+    )
+
+    assert "这次任务已经按" not in result["assistant"]
+    assert result["assistant"] == "主要需要看 `app/web/main.py` 和 `app/web/service.py`。"
+
+
 def test_web_service_uses_review_board_for_review_requests(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(

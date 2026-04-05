@@ -898,8 +898,10 @@ class AssistantResponseRenderer:
         finished = [task for task in tasks if task.status == "done"]
         failed = [task for task in tasks if task.status == "failed"]
         parts: list[str] = []
+        answer = str(last_answer or "").strip()
+        suppress_task_preamble = self._should_suppress_task_preamble(tasks, answer)
 
-        if tasks:
+        if tasks and not suppress_task_preamble:
             if failed:
                 done_text = "、".join(task.title for task in finished) if finished else "前置步骤"
                 failed_text = "；".join(
@@ -911,7 +913,6 @@ class AssistantResponseRenderer:
                 step_titles = "、".join(task.title for task in tasks)
                 parts.append(f"这次任务已经按“{step_titles}”这些步骤处理完成。")
 
-        answer = str(last_answer or "").strip()
         if answer:
             parts.append(answer)
         elif tasks:
@@ -952,6 +953,12 @@ class AssistantResponseRenderer:
     def _contains_patch(self, text: str) -> bool:
         body = str(text or "")
         return "--- " in body or "@@" in body or "diff" in body.lower()
+
+    def _should_suppress_task_preamble(self, tasks: list[TaskItem], answer: str) -> bool:
+        if not answer or self._contains_patch(answer):
+            return False
+        compact_titles = [task.title for task in tasks]
+        return compact_titles == ["定位相关文件", "总结当前实现", "说明验证方法"]
 
 
 @dataclass
