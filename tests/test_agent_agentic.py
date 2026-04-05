@@ -64,3 +64,26 @@ def test_parse_agentic_turn_tool_calls() -> None:
         "type": "tool_calls",
         "calls": [{"name": "echo_tool", "arguments": {"a": 1}}],
     }
+
+
+def test_run_agentic_synthesizes_answer_when_max_turns_reached() -> None:
+    llm = LLMClient(provider="deepseek", model="test-model")
+    llm.generate_agentic_json_turn = MagicMock(
+        side_effect=[
+            {"type": "tool_calls", "calls": [{"name": "echo_tool", "arguments": {"round": 1}}]},
+            {"type": "tool_calls", "calls": [{"name": "echo_tool", "arguments": {"round": 2}}]},
+        ]
+    )
+    llm.generate_answer = MagicMock(return_value="基于现有工具结果，功能已存在。")
+
+    registry = ToolRegistry()
+    registry.register(EchoTool())
+    executor = Executor(registry=registry)
+    planner = Planner(llm=llm)
+    agent = CodeAgent(planner=planner, executor=executor, llm=llm, workspace_root="/tmp/demo")
+
+    result = agent.run_agentic("确认 echo 是否已经存在", max_turns=2)
+
+    assert result.answer == "基于现有工具结果，功能已存在。"
+    assert len(result.tool_trace) == 2
+    llm.generate_answer.assert_called_once()

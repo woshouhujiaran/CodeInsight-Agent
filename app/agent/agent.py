@@ -274,7 +274,11 @@ class CodeAgent:
             answer = "模型返回了未知的 type 字段。"
             break
         else:
-            answer = answer or "已达到最大对话轮次仍未给出最终回答（type=final）。"
+            answer = answer or self._synthesize_agentic_answer(
+                user_query=user_query,
+                tool_trace=tool_trace,
+                history=history,
+            )
 
         if persist_memory and not (cancel_event is not None and cancel_event.is_set()):
             self.memory.add_user_message(user_query)
@@ -306,6 +310,26 @@ class CodeAgent:
             trace_id=trace_id,
         )
 
+    def _synthesize_agentic_answer(
+        self,
+        *,
+        user_query: str,
+        tool_trace: list[dict[str, Any]],
+        history: list[dict[str, str]],
+    ) -> str:
+        if not tool_trace:
+            return "已达到最大对话轮次仍未给出最终回答（type=final）。"
+        context = self._build_agentic_tool_context(user_query=user_query, tool_trace=tool_trace)
+        answer = str(
+            self.llm.generate_answer(
+                user_query=user_query,
+                context=context,
+                history=history,
+            )
+            or ""
+        ).strip()
+        return answer or "已达到最大对话轮次，但已基于现有工具结果生成总结。"
+
     def _format_agentic_tool_feedback(self, results: list[dict[str, Any]]) -> str:
         lines: list[str] = ["以下为工具执行结果（每行一个 JSON 对象）："]
         for r in results:
@@ -317,6 +341,15 @@ class CodeAgent:
             }
             lines.append(json.dumps(payload, ensure_ascii=False))
         return "\n".join(lines)
+
+    def _build_agentic_tool_context(self, *, user_query: str, tool_trace: list[dict[str, Any]]) -> str:
+        lines: list[str] = [f"User Query:\n{user_query}", "", "=== Agentic tool results ==="]
+        for idx, result in enumerate(tool_trace, start=1):
+            lines.append(
+                f"[{idx}] tool={result.get('tool', 'unknown_tool')} status={result.get('status', 'unknown')}\n"
+                f"Output:\n{result.get('output', '')}"
+            )
+        return "\n\n".join(lines).strip()
 
     def _record_turn_metrics(self, *, tool_results: list[dict[str, Any]], duration_ms: int) -> None:
         if not tool_results:
