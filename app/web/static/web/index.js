@@ -849,7 +849,7 @@
 
     function ensureNotBusy() {
       if (!isBusy()) return false;
-      setStatus("璇峰厛绛夊緟褰撳墠娴佸紡杩愯缁撴潫銆?");
+      setStatus("请先等待当前流式运行结束。");
       return true;
     }
 
@@ -1919,7 +1919,7 @@
 
     function handleStreamEvent(eventName, data) {
       if (eventName === SSE_EVENTS.streamProfile) {
-        if (data?.kind === "phased") setStatus("闃舵娴佽繑鍥炰腑...");
+        if (data?.kind === "phased") setStatus("阶段流返回中...");
         return;
       }
       if (eventName === SSE_EVENTS.session) {
@@ -1927,6 +1927,11 @@
         persistActiveSessionId(state.currentSession.session_id);
         upsertSessionSummary(state.currentSession);
         applySessionToControls(state.currentSession);
+        // 一轮结束时服务端会在 assistant_final 之后立刻推送 session，此时 messages 已含助手消息。
+        // 若仍保留 pending 气泡并 append 到列表末尾，会与刚渲染的助手消息重复，看起来像两段回答叠在一起。
+        const msgs = state.currentSession.messages || [];
+        const last = msgs[msgs.length - 1];
+        if (last && last.role === "assistant" && state.pendingAssistantEl) clearPendingAssistant();
         renderMessages(state.currentSession);
         renderTasks(state.currentSession.tasks);
         renderTestSummary(state.currentSession.last_test_summary);
@@ -1960,7 +1965,9 @@
       if (eventName === SSE_EVENTS.assistantFinal) {
         if (state.pendingAssistantEl) {
           state.pendingAssistantEl.classList.remove("loading");
-          state.pendingAssistantEl.textContent = data.content || state.pendingAssistantText;
+          const finalText = data.content || state.pendingAssistantText;
+          state.pendingAssistantText = finalText;
+          state.pendingAssistantEl.textContent = finalText;
         }
         return;
       }
