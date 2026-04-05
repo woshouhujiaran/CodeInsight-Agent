@@ -728,10 +728,61 @@ class ClarificationGuard:
         lowered = text.lower()
         if not text:
             return None
+        if self._is_ambiguous_style_request(text, lowered):
+            return ClarificationPrompt(answer=self._build_style_clarification())
+        if self._is_ambiguous_edit_request(text, lowered):
+            return ClarificationPrompt(answer=self._build_edit_clarification())
+        if self._is_ambiguous_performance_request(text, lowered):
+            return ClarificationPrompt(answer=self._build_performance_clarification())
         if not self._is_ambiguous_troubleshooting_request(text, lowered):
             return None
         error_code = self._normalize_error_code(text)
         return ClarificationPrompt(answer=self._build_troubleshooting_clarification(error_code))
+
+    def _is_ambiguous_style_request(self, text: str, lowered: str) -> bool:
+        style_markers = (
+            "更简洁",
+            "更短",
+            "更口语",
+            "固定格式",
+            "回答风格",
+            "回复风格",
+            "怎么配",
+            "怎么调",
+            "如何配",
+            "如何调",
+        )
+        answered_dimension_markers = ("更少步骤", "少列表", "一段话", "三句话", "只给结论")
+        return self._contains_any(text, lowered, style_markers) and not self._contains_any(
+            text, lowered, answered_dimension_markers
+        )
+
+    def _is_ambiguous_edit_request(self, text: str, lowered: str) -> bool:
+        edit_markers = ("改一下", "改一改", "修一下", "修一修", "给个修复方案", "尽快修")
+        concrete_scope_markers = (
+            "文件",
+            "函数",
+            "模块",
+            "接口",
+            "报错",
+            "bug",
+            "路径",
+            "类",
+            "方法",
+            "代码",
+        )
+        return self._contains_any(text, lowered, edit_markers) and not self._contains_any(
+            text, lowered, concrete_scope_markers
+        )
+
+    def _is_ambiguous_performance_request(self, text: str, lowered: str) -> bool:
+        performance_markers = ("太慢", "有点慢", "性能差", "优化一下", "性能优化")
+        scope_markers = ("函数", "接口", "SQL", "查询", "模块", "接口", "页面")
+        evidence_markers = ("耗时", "ms", "秒", "火焰图", "profile", "profiler", "CPU", "QPS", "日志")
+        return self._contains_any(text, lowered, performance_markers) and (
+            not self._contains_any(text, lowered, scope_markers)
+            or not self._contains_any(text, lowered, evidence_markers)
+        )
 
     def _is_ambiguous_troubleshooting_request(self, text: str, lowered: str) -> bool:
         troubleshooting_markers = (
@@ -813,6 +864,32 @@ class ClarificationGuard:
             "2. 当时的应用日志、网关日志或报错栈里最关键的一段是什么？\n"
             "3. 复现条件是什么：是否和特定参数、并发、用户状态或时间段有关？\n"
             "你贴出这些信息后，我再按现象、日志、依赖、数据和并发几个方向帮你缩小范围。"
+        )
+
+    def _build_style_clarification(self) -> str:
+        return (
+            "可以先定一下你说的“更简洁”具体是哪一种：\n"
+            "1. 更短，只保留结论。\n"
+            "2. 更少步骤，非必要不列清单。\n"
+            "3. 更口语，少一点书面技术腔。\n"
+            "4. 固定格式，比如始终按“结论 + 关键点”回答。\n"
+            "你选一个，我再按这个风格回答。"
+        )
+
+    def _build_edit_clarification(self) -> str:
+        return (
+            "要先补三点，不然我只能泛泛而谈：\n"
+            "1. 你想改的是哪个文件、函数、页面或接口？\n"
+            "2. 现在的现象是什么，预期结果又是什么？\n"
+            "3. 这轮是先分析方案，还是已经允许我直接改实现？"
+        )
+
+    def _build_performance_clarification(self) -> str:
+        return (
+            "先给我两类关键信息，我才能判断优化方向：\n"
+            "1. 具体是哪个函数、接口、查询或页面慢？最好带文件位置。\n"
+            "2. 你现在的性能依据是什么：耗时、日志、profile、QPS 或复现步骤里至少给一个。\n"
+            "补上这两点后，我再按算法、I/O、数据库和并发几个方向帮你缩小范围。"
         )
 
     @staticmethod

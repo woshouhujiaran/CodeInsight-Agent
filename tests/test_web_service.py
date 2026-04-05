@@ -399,9 +399,57 @@ def test_web_service_qa_prompt_encourages_clarification_for_ambiguous_requests(t
     result = service.chat(session["session_id"], "我想让回答更简洁，你觉得该怎么配？")
 
     assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
-    assert fake_llm.calls
-    assert "一至三个简短澄清问题" in fake_llm.calls[0]["prompt"]
-    assert "调整回答风格" in fake_llm.calls[0]["prompt"]
+    assert result["session"]["turn_metadata"][-1]["clarification_requested"] is True
+    assert "更简洁" in result["assistant"]
+    assert "更短" in result["assistant"]
+    assert "更口语" in result["assistant"]
+    assert fake_llm.calls == []
+
+
+def test_web_service_short_circuits_ambiguous_edit_requests(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root="")
+    fake_llm = FakeLLM(answer="不应该被调用")
+    factory = FakeAgentFactory(turns=[build_turn("不应该被调用")])
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(session["session_id"], "先帮我改一下。")
+
+    assert "哪个文件、函数、页面或接口" in result["assistant"]
+    assert "预期结果" in result["assistant"]
+    assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
+    assert result["session"]["turn_metadata"][-1]["clarification_requested"] is True
+    assert result["task_results"] == []
+    assert factory.created_agents == []
+    assert fake_llm.calls == []
+
+
+def test_web_service_short_circuits_ambiguous_performance_requests(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root="")
+    fake_llm = FakeLLM(answer="不应该被调用")
+    factory = FakeAgentFactory(turns=[build_turn("不应该被调用")])
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: fake_llm,
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(session["session_id"], "这个函数太慢了，优化一下。")
+
+    assert "哪个函数、接口、查询或页面慢" in result["assistant"]
+    assert "耗时、日志、profile、QPS" in result["assistant"]
+    assert result["session"]["turn_metadata"][-1]["mode"] == "qa"
+    assert result["session"]["turn_metadata"][-1]["clarification_requested"] is True
+    assert result["task_results"] == []
+    assert factory.created_agents == []
+    assert fake_llm.calls == []
 
 
 def test_web_service_short_circuits_ambiguous_troubleshooting_requests(tmp_path: Path) -> None:
