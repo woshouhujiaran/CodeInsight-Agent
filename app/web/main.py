@@ -45,6 +45,13 @@ def _sse_message(event: str, data: Any) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
 
 
+def _static_asset_version(path: Path) -> str:
+    try:
+        return str(path.stat().st_mtime_ns)
+    except OSError:
+        return "0"
+
+
 def _bootstrap_env() -> None:
     """与 CLI 一致：从仓库根目录加载 .env，避免 Web 进程读不到 API Key。"""
     repo_root = Path(__file__).resolve().parents[2]
@@ -66,7 +73,12 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         template_path = TEMPLATES_DIR / "index.html"
-        return HTMLResponse(template_path.read_text(encoding="utf-8"))
+        html = template_path.read_text(encoding="utf-8")
+        css_version = _static_asset_version(STATIC_DIR / "web" / "index.css")
+        js_version = _static_asset_version(STATIC_DIR / "web" / "index.js")
+        html = html.replace('/static/web/index.css"', f'/static/web/index.css?v={css_version}"')
+        html = html.replace('/static/web/index.js"', f'/static/web/index.js?v={js_version}"')
+        return HTMLResponse(html)
 
     @app.get("/sessions", response_model=list[SessionSummaryModel])
     def list_sessions() -> list[dict[str, Any]]:

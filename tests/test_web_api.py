@@ -136,8 +136,8 @@ def test_web_index_serves_external_assets(tmp_path: Path) -> None:
 
     html = client.get("/")
     assert html.status_code == 200
-    assert '/static/web/index.css' in html.text
-    assert '/static/web/index.js' in html.text
+    assert '/static/web/index.css?v=' in html.text
+    assert '/static/web/index.js?v=' in html.text
 
     stylesheet = client.get("/static/web/index.css")
     assert stylesheet.status_code == 200
