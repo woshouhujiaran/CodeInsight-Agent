@@ -1,0 +1,34 @@
+{
+  "tasks": [
+    {
+      "name": "workspace_root_exists",
+      "kind": "path_exists",
+      "path": ".",
+      "path_type": "dir"
+    },
+    {
+      "name": "rag_index_ready",
+      "kind": "build_index",
+      "workspace_root": ".",
+      "force_reindex": false
+    },
+    {
+      "name": "retrieval_session_store",
+      "kind": "retrieval_expectation",
+      "query": "session store persistence history",
+      "expected_path_contains": "app/web/session_store.py",
+      "top_k": 5
+    },
+    {
+      "name": "retrieval_run_eval",
+      "kind": "retrieval_expectation",
+      "query": "run eval summary script",
+      "expected_path_contains": "scripts/run_eval.py",
+      "top_k": 5
+    },
+    {
+      "name": "web_eval_readable",
+      "kind": "web_eval_readable"
+    }
+  ]
+}

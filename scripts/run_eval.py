@@ -16,6 +16,7 @@ from scripts._common import (
     OUTPUTS_DIR,
     REPO_ROOT,
     build_index_for_workspace,
+    build_retriever_for_workspace,
     ensure_outputs_dir,
     environment_summary,
     iso_timestamp,
@@ -28,6 +29,20 @@ TaskSpec = dict[str, Any]
 DEFAULT_TASKS: list[TaskSpec] = [
     {"name": "workspace_root_exists", "kind": "path_exists", "path": ".", "path_type": "dir"},
     {"name": "rag_index_ready", "kind": "build_index", "workspace_root": ".", "force_reindex": False},
+    {
+        "name": "retrieval_session_store",
+        "kind": "retrieval_expectation",
+        "query": "session store persistence history",
+        "expected_path_contains": "app/web/session_store.py",
+        "top_k": 5,
+    },
+    {
+        "name": "retrieval_run_eval",
+        "kind": "retrieval_expectation",
+        "query": "run eval summary script",
+        "expected_path_contains": "scripts/run_eval.py",
+        "top_k": 5,
+    },
     {"name": "web_eval_readable", "kind": "web_eval_readable"},
 ]
 
@@ -71,6 +86,18 @@ def build_result_payload(
         (sum(float(task.get("duration_seconds", 0.0)) for task in tasks) * 1000 / total_tasks) if total_tasks else 0.0,
         2,
     )
+    retrieval_tasks = [task for task in tasks if str(task.get("kind") or "") == "retrieval_expectation"]
+    retrieval_hits = sum(1 for task in retrieval_tasks if task.get("status") == "passed")
+    retrieval_hit_rate = round((retrieval_hits / len(retrieval_tasks)) if retrieval_tasks else 0.0, 4)
+    retrieval_mrr = round(
+        (
+            sum(float((task.get("details") or {}).get("reciprocal_rank", 0.0)) for task in retrieval_tasks)
+            / len(retrieval_tasks)
+        )
+        if retrieval_tasks
+        else 0.0,
+        4,
+    )
     summary = {
         "total_tasks": total_tasks,
         "passed_tasks": passed_tasks,
@@ -79,8 +106,12 @@ def build_result_payload(
         "duration_seconds": round(duration_seconds, 3),
         "timestamp": iso_timestamp(),
         "success_rate": pass_rate,
+        "task_completion_rate": pass_rate,
         "avg_duration_ms": avg_duration_ms,
         "recovery_trigger_rate": 0.0,
+        "retrieval_case_count": len(retrieval_tasks),
+        "retrieval_hit_rate": retrieval_hit_rate,
+        "retrieval_mrr": retrieval_mrr,
     }
     return {
         "tasks_path": str(tasks_path.resolve()) if tasks_path is not None else None,
@@ -108,6 +139,8 @@ def run_task(
             details = _run_path_exists_task(spec, workspace_root=workspace_root)
         elif kind == "build_index":
             details = _run_build_index_task(spec, workspace_root=workspace_root)
+        elif kind == "retrieval_expectation":
+            details = _run_retrieval_expectation_task(spec, workspace_root=workspace_root)
         elif kind == "web_eval_readable":
             details = _run_web_eval_readable_task(payload_factory=payload_factory)
         else:
@@ -120,6 +153,7 @@ def run_task(
     duration_seconds = round(time.perf_counter() - started, 3)
     return {
         "name": name,
+        "kind": str(spec.get("kind") or ""),
         "status": status,
         "error": error,
         "duration": duration_seconds,
@@ -154,6 +188,42 @@ def _run_build_index_task(spec: TaskSpec, *, workspace_root: Path) -> dict[str, 
         "index_dir": result.get("index_dir"),
         "snapshot": result.get("snapshot"),
         "document_count": result.get("document_count"),
+    }
+
+
+def _run_retrieval_expectation_task(spec: TaskSpec, *, workspace_root: Path) -> dict[str, Any]:
+    query = str(spec.get("query") or "").strip()
+    expected = str(spec.get("expected_path_contains") or "").strip().replace("\\", "/").lower()
+    if not query:
+        raise ValueError("retrieval_expectation requires query")
+    if not expected:
+        raise ValueError("retrieval_expectation requires expected_path_contains")
+    top_k = int(spec.get("top_k") or 5)
+    force_reindex = bool(spec.get("force_reindex", False))
+    target_root = spec.get("workspace_root")
+    resolved_root = resolve_workspace_root(workspace_root if target_root in (None, "", ".") else target_root)
+    retriever, meta = build_retriever_for_workspace(resolved_root, force_reindex=force_reindex)
+    hits = retriever.retrieve(query=query, top_k=top_k)
+    reciprocal_rank = 0.0
+    matched_path = ""
+    for index, hit in enumerate(hits, start=1):
+        path = str(hit.get("file_path") or "").replace("\\", "/").lower()
+        if expected in path:
+            reciprocal_rank = round(1.0 / index, 4)
+            matched_path = str(hit.get("file_path") or "")
+            break
+    if reciprocal_rank == 0.0:
+        preview = [str(hit.get("file_path") or "") for hit in hits[:top_k]]
+        raise AssertionError(f"expected `{expected}` in top-{top_k} hits, got {preview}")
+    return {
+        "query": query,
+        "expected_path_contains": expected,
+        "matched_path": matched_path,
+        "top_k": top_k,
+        "hit_count": len(hits),
+        "reciprocal_rank": reciprocal_rank,
+        "index_status": meta.get("status"),
+        "index_dir": meta.get("index_dir"),
     }
 
 

@@ -6,7 +6,7 @@ from app.rag.embeddings import HashEmbedding
 from app.web.service import WebAgentService
 from scripts import _common
 from scripts.clear_state import apply_cleanup, collect_cleanup_targets
-from scripts.run_eval import build_result_payload
+from scripts.run_eval import build_result_payload, run_task
 
 
 class _FakeIndex:
@@ -87,8 +87,15 @@ def test_eval_payload_is_readable_by_web_service(tmp_path: Path) -> None:
     outputs_dir = tmp_path / "outputs"
     payload = build_result_payload(
         tasks=[
-            {"name": "workspace_root_exists", "status": "passed", "error": None, "duration_seconds": 0.1},
-            {"name": "rag_index_ready", "status": "failed", "error": "boom", "duration_seconds": 0.2},
+            {"name": "workspace_root_exists", "kind": "path_exists", "status": "passed", "error": None, "duration_seconds": 0.1},
+            {
+                "name": "retrieval_session_store",
+                "kind": "retrieval_expectation",
+                "status": "failed",
+                "error": "boom",
+                "duration_seconds": 0.2,
+                "details": {"reciprocal_rank": 0.0},
+            },
         ],
         workspace_root=tmp_path,
         tasks_path=None,
@@ -104,4 +111,35 @@ def test_eval_payload_is_readable_by_web_service(tmp_path: Path) -> None:
     assert latest["payload"]["summary"]["passed_tasks"] == 1
     assert latest["payload"]["summary"]["failed_tasks"] == 1
     assert latest["payload"]["summary"]["pass_rate"] == 0.5
+    assert latest["payload"]["summary"]["retrieval_case_count"] == 1
+    assert latest["payload"]["summary"]["retrieval_hit_rate"] == 0.0
     assert "python_version" in latest["payload"]["environment"]
+
+
+def test_run_eval_retrieval_task_reports_reciprocal_rank(tmp_path: Path, monkeypatch) -> None:
+    class _FakeRetriever:
+        def retrieve(self, query: str, top_k: int = 5) -> list[dict[str, object]]:
+            assert query == "session store"
+            assert top_k == 3
+            return [
+                {"file_path": "app/web/service.py"},
+                {"file_path": "app/web/session_store.py"},
+            ]
+
+    monkeypatch.setattr("scripts.run_eval.build_retriever_for_workspace", lambda *args, **kwargs: (_FakeRetriever(), {"status": "loaded", "index_dir": "x"}))
+
+    result = run_task(
+        {
+            "name": "retrieval_session_store",
+            "kind": "retrieval_expectation",
+            "query": "session store",
+            "expected_path_contains": "app/web/session_store.py",
+            "top_k": 3,
+        },
+        workspace_root=tmp_path,
+        payload_factory=lambda: {},
+    )
+
+    assert result["status"] == "passed"
+    assert result["details"]["matched_path"] == "app/web/session_store.py"
+    assert result["details"]["reciprocal_rank"] == 0.5

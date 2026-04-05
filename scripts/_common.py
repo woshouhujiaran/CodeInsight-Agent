@@ -12,6 +12,7 @@ if str(Path(__file__).resolve().parents[1]) not in sys.path:
 
 from app.rag.embeddings import create_embedding_backend
 from app.rag.load_or_build import load_or_build_vector_store
+from app.rag.retriever import CodeRetriever
 from app.runtime import default_index_dir
 from app.utils.env_loader import load_env_file
 
@@ -72,6 +73,28 @@ def build_index_for_workspace(
     return result
 
 
+def build_retriever_for_workspace(
+    workspace_root: str | Path,
+    *,
+    force_reindex: bool = False,
+) -> tuple[CodeRetriever, dict[str, Any]]:
+    bootstrap_environment()
+    resolved_root = resolve_workspace_root(workspace_root)
+    embedding = create_embedding_backend()
+    index_dir = default_index_dir(str(resolved_root)).resolve()
+    store, meta = load_or_build_vector_store(
+        str(resolved_root),
+        index_dir,
+        embedding,
+        force_reindex=force_reindex,
+    )
+    result = dict(meta)
+    result["workspace_root"] = str(resolved_root)
+    result["index_dir"] = str(index_dir)
+    result["document_count"] = int(getattr(store.index, "ntotal", 0))
+    return CodeRetriever(store=store), result
+
+
 def iso_timestamp() -> str:
     return datetime.now().astimezone().isoformat(timespec="seconds")
 
@@ -82,4 +105,3 @@ def environment_summary(*, workspace_root: Path) -> dict[str, str]:
         "platform": platform.platform(),
         "workspace_root": str(workspace_root),
     }
-
