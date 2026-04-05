@@ -265,6 +265,9 @@ def test_turn_mode_infer_with_meta_marks_ambiguous_project_queries() -> None:
 
     assert decider.infer_with_meta("当前项目技术栈") == ("workspace_qa", False)
     assert decider.infer("这个项目是做什么的") == "workspace_qa"
+    assert decider.infer("怎么运行这个项目") == "workspace_qa"
+    assert decider.infer("当前文件夹如何启动") == "workspace_qa"
+    assert decider.infer("帮我运行这个项目") == "agentic"
     assert decider.infer_with_meta("git 仓库和 svn 仓库有什么区别") == ("qa", False)
     assert decider.infer_with_meta("在当前项目里 REST 和 GraphQL 有什么区别") == ("qa", False)
 

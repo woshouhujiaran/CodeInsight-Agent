@@ -35,7 +35,8 @@ _WORKSPACE_QA_SYSTEM_PROMPT = """你是面向 Web 用户的本地工作区问答
 2. 不要把回答写成任务拆解、任务看板、模块施工计划或阶段汇报，除非用户明确要求。
 3. 默认只读，不要修改文件，不要声称已经修改文件，也不要运行测试或命令。
 4. 重点围绕“这个项目/文件夹/文件是什么、做什么、当前结构如何”来总结，避免无关扩展。
-5. 若信息不足，先明确说依据了哪些文件，再给出条件化判断。"""
+5. 若用户问如何本地运行或安装依赖，结合 README 与清单文件给出步骤说明，但不要替用户执行命令。
+6. 若信息不足，先明确说依据了哪些文件，再给出条件化判断。"""
 
 
 class WebAgentService:
@@ -368,10 +369,15 @@ class WebAgentService:
         if safety_refusal is not None:
             mode = "qa"
         else:
+            workspace_raw = str(snapshot.get("workspace_root") or "").strip()
             mode, need_mode_arbitration = self.mode_decider.infer_with_meta(user_content)
             if need_mode_arbitration:
-                mode = arbitrate_turn_mode(self.llm_factory(), user_content, fallback=mode)
-            workspace_raw = str(snapshot.get("workspace_root") or "").strip()
+                mode = arbitrate_turn_mode(
+                    self.llm_factory(),
+                    user_content,
+                    fallback=mode,
+                    workspace_bound=bool(workspace_raw),
+                )
             if mode in {"agentic", "workspace_qa"} and not workspace_raw:
                 mode = "qa"
         clarification_prompt = None
@@ -649,6 +655,7 @@ class WebAgentService:
             "请优先通过 list_dir_tool、search_tool、read_file_tool 理解项目或文件夹内容，然后直接给用户自然语言总结。\n"
             "除非用户明确要求，否则不要输出任务板、步骤拆分、修改方案、补丁、测试执行结果或阶段性施工描述。\n"
             "如果用户是在问“这个项目/文件夹/文件是做什么的”，先概括目标，再补充关键目录、主要模块和判断依据。\n"
+            "如果是在问如何本地运行、安装依赖或启动服务，请结合 README、pyproject/package.json、脚本入口等给出可执行步骤说明（仍不要替用户执行命令）。\n"
             "如果某个结论依赖你刚读到的文件，请在表述中简短点明依据文件。\n\n"
             f"[工作区根目录]\n{workspace_root}\n\n"
             f"[对话历史]\n{history_text}\n\n"

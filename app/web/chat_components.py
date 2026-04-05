@@ -141,6 +141,47 @@ class TurnModeDecider:
         "当前文件",
     )
 
+    # 仅想了解「如何跑起来 / 怎么用」，仍属只读 workspace_qa；与「帮我运行」等真执行区分开
+    _WORKSPACE_QA_RUN_OR_USAGE_MARKERS = (
+        "怎么运行",
+        "如何运行",
+        "怎样运行",
+        "怎么启动",
+        "如何启动",
+        "怎样启动",
+        "怎么安装",
+        "如何安装",
+        "怎样安装",
+        "本地运行",
+        "本地开发",
+        "开发环境",
+        "怎么用",
+        "如何使用",
+        "怎样用",
+        "使用说明",
+        "运行说明",
+        "启动命令",
+        "启动方式",
+        "如何部署",
+        "怎么部署",
+        "怎样部署",
+        "入门",
+        "上手",
+    )
+
+    _WORKSPACE_QA_EXECUTION_INTENT_MARKERS = (
+        "帮我运行",
+        "帮我启动",
+        "帮我执行",
+        "运行一下",
+        "启动一下",
+        "执行一下",
+        "跑一下",
+        "直接运行",
+        "现在就运行",
+        "替我运行",
+    )
+
     # 需要读/搜/改/跑的具体行动信号（命中则任务模式；避免过短词误伤「二分查找」等术语）
     _OPERATIONAL_MARKERS = (
         "定位实现",
@@ -249,6 +290,16 @@ class TurnModeDecider:
             "修复当前项目",
             "改造当前项目",
             "补充最小测试",
+            "帮我运行",
+            "帮我启动",
+            "帮我执行",
+            "运行一下",
+            "启动一下",
+            "执行一下",
+            "跑一下",
+            "直接运行",
+            "现在就运行",
+            "替我运行",
         )
         if self._contains_any(text, lowered, direct_agentic_requests):
             return ("agentic", False)
@@ -382,10 +433,14 @@ class TurnModeDecider:
         return mode
 
     def _looks_like_workspace_qa_request(self, text: str, lowered: str) -> bool:
+        if self._contains_any(text, lowered, self._WORKSPACE_QA_EXECUTION_INTENT_MARKERS):
+            return False
         asks_for_explanation = self._contains_any(
             text,
             lowered,
-            self._PROJECT_OVERVIEW_MARKERS + self._WORKSPACE_QA_EXPLANATION_MARKERS,
+            self._PROJECT_OVERVIEW_MARKERS
+            + self._WORKSPACE_QA_EXPLANATION_MARKERS
+            + self._WORKSPACE_QA_RUN_OR_USAGE_MARKERS,
         )
         mentions_workspace_target = self._contains_any(
             text,
