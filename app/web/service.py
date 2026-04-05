@@ -378,6 +378,8 @@ class WebAgentService:
                     fallback=mode,
                     workspace_bound=bool(workspace_raw),
                 )
+            if workspace_raw and self._looks_like_specific_file_explanation_request(user_content):
+                mode = "workspace_qa"
             if mode in {"agentic", "workspace_qa"} and not workspace_raw:
                 mode = "qa"
         clarification_prompt = None
@@ -667,6 +669,11 @@ class WebAgentService:
         if workspace_root:
             return workspace_root
         raise ValueError("当前会话未设置 workspace_root。QA 模式可以留空；任务模式请先配置真实工作区。")
+
+    def _looks_like_specific_file_explanation_request(self, user_content: str) -> bool:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        return self.mode_decider._looks_like_workspace_file_explanation_request(text, lowered)
 
     def _sync_session_title(self, snapshot: dict[str, Any]) -> None:
         if snapshot.get("title_overridden"):

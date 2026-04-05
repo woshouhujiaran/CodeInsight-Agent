@@ -334,6 +334,29 @@ def test_web_service_project_overview_uses_workspace_qa_when_workspace_is_bound(
     assert len(factory.created_agents[0].recorded_prompts) == 1
 
 
+def test_web_service_file_explanation_uses_workspace_qa(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(workspace_root=str(workspace))
+    factory = FakeAgentFactory(
+        turns=[build_turn("`app/web/main.py` 是 Web 服务入口。", [{"tool": "read_file_tool", "status": "ok"}])]
+    )
+    service = WebAgentService(
+        session_store=store,
+        agent_factory=factory,
+        llm_factory=lambda: FakeLLM(answer="不应被调用"),
+        repo_root=tmp_path,
+    )
+
+    result = service.chat(session["session_id"], "分析 app/web/main.py 在做什么")
+
+    assert result["assistant"] == "`app/web/main.py` 是 Web 服务入口。"
+    assert result["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert result["session"]["tasks"] == []
+    assert result["session"]["turn_metadata"][-1]["tool_results"][0]["tool"] == "read_file_tool"
+
+
 def test_web_service_readonly_existence_check_uses_workspace_qa(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -469,6 +492,31 @@ def test_web_service_uses_compact_board_for_readonly_analysis_requests(tmp_path:
     result = service.chat(
         session["session_id"],
         "在当前项目里找到会话存储实现，列出关键文件，并说明你会怎么验证，不要大改。",
+    )
+
+    titles = [task["title"] for task in result["session"]["tasks"]]
+    assert titles == ["定位相关文件", "总结当前实现", "说明验证方法"]
+    assert len(factory.created_agents[0].recorded_prompts) == 3
+
+
+def test_web_service_uses_compact_board_when_user_wants_analysis_before_editing(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("已定位候选文件。"),
+            build_turn("已总结应该修改的文件。"),
+            build_turn("已给出验证建议。"),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(
+        session["session_id"],
+        "帮我实现一个健康检查 API，先分析应该改哪些文件",
     )
 
     titles = [task["title"] for task in result["session"]["tasks"]]
