@@ -392,7 +392,8 @@ class WebAgentService:
             and not settings.get("allow_write")
             and not settings.get("allow_shell")
             and (
-                self._looks_like_vague_project_optimization_request(user_content)
+                self._looks_like_readonly_location_request(user_content)
+                or self._looks_like_vague_project_optimization_request(user_content)
                 or self._looks_like_analysis_first_request(user_content)
             )
         ):
@@ -718,6 +719,44 @@ class WebAgentService:
             "影响哪些文件",
         )
         return any(marker in text or marker in lowered for marker in analysis_markers)
+
+    def _looks_like_readonly_location_request(self, user_content: str) -> bool:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        readonly_markers = ("不修改文件", "先别改代码", "只做说明", "只读", "不要改代码")
+        locate_markers = (
+            "定位",
+            "找到",
+            "查找",
+            "找出",
+            "看看",
+            "在哪",
+            "入口",
+            "逻辑",
+            "实现",
+            "调用链",
+        )
+        write_or_verify_markers = (
+            "怎么验证",
+            "如何验证",
+            "验证",
+            "测试点",
+            "补测试",
+            "跑测试",
+            "运行测试",
+            "不要大改",
+            "最小改动",
+            "修复",
+            "新增",
+            "添加",
+            "重构",
+            "补丁",
+            "patch",
+            "diff",
+        )
+        return any(marker in text or marker in lowered for marker in readonly_markers) and any(
+            marker in text or marker in lowered for marker in locate_markers
+        ) and not any(marker in text or marker in lowered for marker in write_or_verify_markers)
 
     def _sync_session_title(self, snapshot: dict[str, Any]) -> None:
         if snapshot.get("title_overridden"):

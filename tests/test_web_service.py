@@ -523,6 +523,52 @@ def test_web_service_analysis_first_request_uses_workspace_qa_when_session_is_re
     assert len(factory.created_agents[0].recorded_prompts) == 1
 
 
+def test_web_service_readonly_location_request_uses_workspace_qa(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[build_turn("主要看 `app/web/service.py` 和 `app/web/chat_components.py`。", [{"tool": "read_file_tool", "status": "ok"}])]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(
+        session["session_id"],
+        "先帮我在当前项目里定位 Web 会话的模式判定逻辑，不修改文件。",
+    )
+
+    assert result["assistant"] == "主要看 `app/web/service.py` 和 `app/web/chat_components.py`。"
+    assert result["session"]["turn_metadata"][-1]["mode"] == "workspace_qa"
+    assert result["session"]["tasks"] == []
+    assert len(factory.created_agents[0].recorded_prompts) == 1
+
+
+def test_web_service_readonly_location_request_with_verification_stays_agentic(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={"allow_write": False, "allow_shell": False},
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("已定位相关文件。"),
+            build_turn("已总结当前实现。"),
+            build_turn("已给出验证方法。"),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(
+        session["session_id"],
+        "现在在当前项目里找到会话存储实现，列出关键文件，并说明你会怎么验证，不要大改。",
+    )
+
+    assert result["session"]["turn_metadata"][-1]["mode"] == "agentic"
+    assert [task["title"] for task in result["session"]["tasks"]] == ["定位相关文件", "总结当前实现", "说明验证方法"]
+
+
 def test_web_service_compact_board_omits_task_preamble_in_final_answer(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(
