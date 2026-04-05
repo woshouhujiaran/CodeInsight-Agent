@@ -70,6 +70,17 @@ def create_app(service: WebAgentService | None = None) -> FastAPI:
     app.state.service = service or WebAgentService()
     app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
+    @app.middleware("http")
+    async def ensure_utf8_charset(request: Request, call_next: Any) -> Any:
+        response = await call_next(request)
+        content_type = str(response.headers.get("content-type") or "")
+        lowered = content_type.lower()
+        if lowered.startswith("application/json") and "charset=" not in lowered:
+            response.headers["content-type"] = "application/json; charset=utf-8"
+        elif lowered.startswith("text/event-stream") and "charset=" not in lowered:
+            response.headers["content-type"] = "text/event-stream; charset=utf-8"
+        return response
+
     @app.get("/", response_class=HTMLResponse)
     def index() -> HTMLResponse:
         template_path = TEMPLATES_DIR / "index.html"

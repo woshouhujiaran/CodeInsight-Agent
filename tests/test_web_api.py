@@ -148,6 +148,15 @@ def test_web_index_serves_external_assets(tmp_path: Path) -> None:
     assert "ACTIVE_SESSION_STORAGE_KEY" in script.text
 
 
+def test_web_api_json_responses_explicitly_use_utf8_charset(tmp_path: Path) -> None:
+    client, _store = _client(tmp_path)
+
+    response = client.post("/sessions", json={"settings": {}})
+
+    assert response.status_code == 200
+    assert response.headers["content-type"] == "application/json; charset=utf-8"
+
+
 def test_web_api_pick_folder_returns_workspace_root(tmp_path: Path) -> None:
     workspace = tmp_path / "workspace"
     workspace.mkdir()
@@ -407,6 +416,7 @@ def test_web_api_sse_stream_emits_task_board_and_final(tmp_path: Path) -> None:
         json={"content": "请分析并修改"},
     ) as response:
         assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream; charset=utf-8")
         text = "".join(chunk for chunk in response.iter_text())
 
     assert "event: stream_profile" in text
