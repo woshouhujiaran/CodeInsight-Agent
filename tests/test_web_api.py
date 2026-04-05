@@ -428,3 +428,42 @@ def test_web_api_sse_stream_emits_cancel_error(tmp_path: Path) -> None:
     assert "event: error" in text
     assert "\u5df2\u53d6\u6d88" in text
     assert "event: assistant_final" not in text
+
+
+def test_web_api_sequential_qa_stream_turns_preserve_message_order(tmp_path: Path) -> None:
+    fake_llm = FakeLLM(
+        answer="unused",
+        call_answers=["第一轮回答。", "第二轮回答。"],
+    )
+    client, _store = _client(tmp_path, llm_factory=lambda: fake_llm)
+    created = client.post("/sessions", json={"settings": {}})
+    session_id = created.json()["session_id"]
+
+    with client.stream(
+        "POST",
+        f"/sessions/{session_id}/messages?stream=1",
+        json={"content": "第一个问题"},
+    ) as response:
+        assert response.status_code == 200
+        text = "".join(chunk for chunk in response.iter_text())
+    assert "event: assistant_final" in text
+
+    with client.stream(
+        "POST",
+        f"/sessions/{session_id}/messages?stream=1",
+        json={"content": "第二个问题"},
+    ) as response:
+        assert response.status_code == 200
+        text = "".join(chunk for chunk in response.iter_text())
+    assert "event: assistant_final" in text
+
+    session = client.get(f"/sessions/{session_id}")
+    assert session.status_code == 200
+    messages = session.json()["messages"]
+    assert [item["role"] for item in messages] == ["user", "assistant", "user", "assistant"]
+    assert [item["content"] for item in messages] == [
+        "第一个问题",
+        "第一轮回答。",
+        "第二个问题",
+        "第二轮回答。",
+    ]
