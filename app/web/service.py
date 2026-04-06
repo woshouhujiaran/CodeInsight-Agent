@@ -378,12 +378,49 @@ class WebAgentService:
                     fallback=mode,
                     workspace_bound=bool(workspace_raw),
                 )
+            turn_metadata = snapshot.get("turn_metadata") or []
+            previous_mode = str(turn_metadata[-1].get("mode") or "") if turn_metadata else ""
             if workspace_raw and self._looks_like_specific_file_explanation_request(user_content):
                 mode = "workspace_qa"
             if workspace_raw and mode == "qa" and self._should_continue_workspace_analysis(snapshot, user_content):
                 mode = "workspace_qa"
+            if workspace_raw and mode == "qa":
+                followup_write_markers = (
+                    "创建",
+                    "新建",
+                    "添加",
+                    "增加",
+                    "修改",
+                    "修复",
+                    "保存",
+                    "改成",
+                    "补充",
+                    "记住我",
+                    "复选框",
+                    "placeholder",
+                    "按钮",
+                    "输入框",
+                    "登录",
+                    "index.html",
+                    "html",
+                    "JS",
+                    "JavaScript",
+                    "原生 JS",
+                    "校验",
+                    "错误",
+                    "错误提示",
+                    "演示",
+                )
+                if previous_mode in {"agentic", "workspace_qa"} and any(
+                    marker in user_content for marker in followup_write_markers
+                ) and not any(marker in user_content for marker in ("回到问答模式", "qa 模式", "qa模式", "问答模式")):
+                    mode = "agentic"
             if mode in {"agentic", "workspace_qa"} and not workspace_raw:
                 mode = "qa"
+            if any(marker in user_content for marker in ("回到问答模式", "qa 模式", "qa模式", "问答模式")):
+                mode = "qa"
+        turn_metadata = snapshot.get("turn_metadata") or []
+        previous_mode = str(turn_metadata[-1].get("mode") or "") if turn_metadata else ""
         clarification_prompt = None
         if safety_refusal is None and mode == "qa":
             clarification_prompt = self.clarification_guard.review(user_content)
@@ -399,6 +436,10 @@ class WebAgentService:
                 or self._looks_like_analysis_first_request(user_content)
             )
         ):
+            mode = "workspace_qa"
+        if workspace_raw and mode == "agentic" and self._looks_like_readonly_workspace_overview_request(user_content):
+            mode = "workspace_qa"
+        if workspace_raw and mode == "qa" and self._looks_like_readonly_location_request(user_content):
             mode = "workspace_qa"
         memory = ConversationMemory.from_snapshot(snapshot)
         history_before_turn = memory.get_messages()
@@ -725,10 +766,52 @@ class WebAgentService:
         )
         return any(marker in text or marker in lowered for marker in analysis_markers)
 
+    def _looks_like_readonly_workspace_overview_request(self, user_content: str) -> bool:
+        text = str(user_content or "").strip()
+        lowered = text.lower()
+        readonly_markers = (
+            "只做说明",
+            "只回答",
+            "先不要改",
+            "不要修改任何文件",
+            "不要改文件",
+            "只读",
+            "不要写",
+        )
+        scope_markers = (
+            "当前工作区",
+            "当前项目",
+            "当前目录",
+            "当前文件夹",
+            "workspace_root",
+            "文件",
+            "目录",
+            "入口",
+            "路径",
+        )
+        write_markers = (
+            "创建",
+            "新建",
+            "添加",
+            "增加",
+            "修复",
+            "保存",
+            "改成",
+            "补充",
+            "运行",
+            "测试",
+            "执行",
+            "patch",
+            "diff",
+        )
+        return any(marker in text or marker in lowered for marker in readonly_markers) and any(
+            marker in text or marker in lowered for marker in scope_markers
+        ) and not any(marker in text or marker in lowered for marker in write_markers)
+
     def _looks_like_readonly_location_request(self, user_content: str) -> bool:
         text = str(user_content or "").strip()
         lowered = text.lower()
-        readonly_markers = ("不修改文件", "先别改代码", "只做说明", "只读", "不要改代码")
+        readonly_markers = ("不修改文件", "先别改代码", "只做说明", "只读", "不要改代码", "只回答", "先不要改")
         locate_markers = (
             "定位",
             "找到",

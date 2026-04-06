@@ -84,6 +84,9 @@ class TurnModeDecider:
 
     # 明确指向「某套代码/工作区」的语境（避免单独「仓库」触发 git vs svn 类泛问）
     _PROJECT_SCOPE_MARKERS = (
+        "项目",
+        "仓库",
+        "代码仓库",
         "当前项目",
         "这个项目",
         "本仓库",
@@ -115,6 +118,9 @@ class TurnModeDecider:
     )
 
     _WORKSPACE_QA_EXPLANATION_MARKERS = (
+        "是什么",
+        "做什么",
+        "怎么用",
         "介绍",
         "说明",
         "说说",
@@ -274,6 +280,29 @@ class TurnModeDecider:
         if self._PATH_PATTERN.search(text):
             return ("agentic", False)
 
+        if self._contains_any(text, lowered, self._PROJECT_SCOPE_MARKERS) and self._contains_any(
+            text,
+            lowered,
+            self._PROJECT_OVERVIEW_MARKERS
+            + self._WORKSPACE_QA_EXPLANATION_MARKERS
+            + self._WORKSPACE_QA_RUN_OR_USAGE_MARKERS,
+        ):
+            return ("workspace_qa", False)
+
+        if self._contains_any(
+            text,
+            lowered,
+            ("创建", "新建", "添加", "增加", "修改", "修复", "改成", "保存", "补充", "记住我"),
+        ) and self._contains_any(
+            text,
+            lowered,
+            ("index.html", "html", "页面", "文件", "按钮", "输入框", "密码框", "复选框", "placeholder", "错误", "登录"),
+        ):
+            return ("agentic", False)
+
+        if self._looks_like_workspace_qa_request(text, lowered):
+            return ("workspace_qa", False)
+
         forced_qa_keywords = (
             "qa 模式",
             "qa模式",
@@ -393,6 +422,17 @@ class TurnModeDecider:
         if self._contains_any(text, lowered, code_change_markers) and self._contains_any(text, lowered, code_targets):
             return ("agentic", False)
 
+        if self._contains_any(
+            text,
+            lowered,
+            ("创建", "新建", "添加", "增加", "修改", "修复", "改成", "保存", "补充", "记住我"),
+        ) and self._contains_any(
+            text,
+            lowered,
+            ("index.html", "html", "页面", "文件", "按钮", "输入框", "密码框", "复选框", "placeholder", "错误", "登录"),
+        ):
+            return ("agentic", False)
+
         if self._contains_any(text, lowered, self._OPERATIONAL_MARKERS):
             return ("agentic", False)
 
@@ -474,8 +514,13 @@ class TurnModeDecider:
             self._PROJECT_SCOPE_MARKERS + self._WORKSPACE_QA_TARGET_MARKERS,
         )
         write_or_run_markers = (
+            "创建",
+            "新建",
+            "添加",
+            "增加",
             "修改",
             "修复",
+            "placeholder",
             "重构",
             "删除",
             "补丁",
