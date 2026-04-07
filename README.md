@@ -1,23 +1,46 @@
 # CodeInsight-Agent
 
-一个基于 FastAPI 的本地代码助手 Web 应用，提供会话管理、聊天、工作区文件树、代码编辑、流式响应，以及面向当前项目的 Agent 执行能力。
+CodeInsight-Agent 是一个基于 FastAPI 的本地代码助手 Web 应用，用来围绕当前仓库做问答、工作区分析和 Agent 执行。
 
-当前仓库主要包含：
+它支持三种主要工作方式：
 
-- Web UI：会话列表、聊天区、文件树、编辑器、测试入口
-- Agent 执行链路：Planner / Executor / Memory / Workspace 工具
-- 面向当前工作区的读写、搜索、测试触发能力
-- 会话持久化、索引构建、检索评测与清理脚本
+1. `QA`：纯问答，不读取本地仓库，也不修改文件。
+2. `workspace_qa`：读取当前工作区中的文件做解释和总结，但默认只读。
+3. `agentic`：以任务板方式执行检索、分析、修改、测试等动作。
 
-如果你只是想尽快跑起来，先看下面的“快速开始”。
+应用会把会话持久化到 `data/sessions/*.json`，并可为每个工作区构建独立的 RAG 索引。
+
+## 主要功能
+
+1. 会话管理：新建、查看、重命名、置顶、归档、删除会话。
+2. 工作区浏览：查看目录树、读取文件、在允许写入时保存文件。
+3. 模式切换：根据用户输入自动判断是 QA、workspace_qa 还是 agentic。
+4. Agent 执行：在允许时使用检索、文件读取、目录浏览、补丁写入、命令执行和测试工具。
+5. 流式输出：Web 端支持 SSE 流式返回中间过程。
+6. 评测查看：Web 页面可读取 `outputs/eval_result.json` 中的最新评测结果。
+7. 本地路径选择：支持通过系统文件选择器选取文件或文件夹。
+
+## 项目结构
+
+1. `app/web/main.py`：FastAPI 入口和 HTTP 路由。
+2. `app/web/service.py`：Web 层核心业务，负责会话、模式路由和工作区操作。
+3. `app/web/chat_components.py`：模式判定、安全拦截、澄清提示、任务板响应渲染。
+4. `app/web/session_store.py`：会话持久化与规范化。
+5. `app/runtime.py`：LLM、embedding、RAG、Agent 和工具注册。
+6. `app/agent/`：Planner、Executor、Memory、TaskBoard、Recovery 等 Agent 逻辑。
+7. `app/rag/`：索引构建、向量存储、检索和分块。
+8. `app/tools/`：文件读写、搜索、命令执行、测试等工具。
+9. `scripts/build_index.py`：构建或刷新工作区索引。
+10. `scripts/run_eval.py`：运行离线评测。
+11. `scripts/clear_state.py`：清理生成产物。
 
 ## 快速开始
 
 ### 1. 环境要求
 
-- Python `3.10+`
-- Windows / macOS / Linux
-- 可用的 LLM API Key
+1. Python `3.10+`
+2. Windows、macOS 或 Linux
+3. 可用的 LLM API Key
 
 ### 2. 安装依赖
 
@@ -27,7 +50,7 @@ pip install -r requirements.txt
 
 ### 3. 配置 `.env`
 
-复制 `.env.example` 为 `.env`：
+复制示例文件：
 
 ```bash
 cp .env.example .env
@@ -39,21 +62,27 @@ Windows PowerShell：
 Copy-Item .env.example .env
 ```
 
-最少需要配置一组可用模型，例如使用 DeepSeek：
+至少要配置一个可用的模型提供方。例如 DeepSeek：
 
 ```env
 LLM_PROVIDER=deepseek
 LLM_MODEL=deepseek-chat
-DEEPSEEK_API_KEY=你的_key
+DEEPSEEK_API_KEY=your_key
 ```
 
-如果你想使用 OpenAI 兼容接口，可以改成：
+如果使用 OpenAI 兼容接口：
 
 ```env
 LLM_PROVIDER=openai
 LLM_MODEL=gpt-4o-mini
-OPENAI_API_KEY=你的_key
+OPENAI_API_KEY=your_key
 # OPENAI_BASE_URL=https://api.openai.com/v1
+```
+
+如果想降低依赖、快速跑通，可以把 embedding 后端改成 hash，但检索质量会下降：
+
+```env
+EMBEDDING_BACKEND=hash
 ```
 
 ### 4. 启动 Web
@@ -68,7 +97,7 @@ python -m app.web
 
 `http://127.0.0.1:8765`
 
-如果你想自定义端口：
+也可以指定端口：
 
 ```bash
 WEB_PORT=9000 python -m app.web
@@ -81,77 +110,59 @@ $env:WEB_PORT=9000
 python -m app.web
 ```
 
-也可以用 `uvicorn`：
+或者使用 uvicorn：
 
 ```bash
 uvicorn app.web.main:app --reload --port 8765
 ```
 
-## Web 怎么用
+## Web 使用方式
 
-### 模式 1：问答模式
+### 1. 纯问答
 
-适合只想提问，不需要访问本地代码。
+适合只想聊天、解释概念、对比原理，不需要访问本地代码的场景。
 
-1. 打开页面后新建会话
-2. `workspace_root` 留空
-3. 直接在右侧输入问题并发送
+1. 新建会话。
+2. `workspace_root` 可以留空。
+3. 直接提问。
 
-这种模式不会依赖本地工作区。
+### 2. 工作区问答
 
-### 模式 2：任务模式
+适合解释当前仓库里的文件、模块和入口，不需要修改代码。
 
-适合让 Agent 读取、修改、测试当前项目。
+1. 新建会话。
+2. 先设置有效的 `workspace_root`。
+3. 提问时尽量明确文件、目录、模块或入口。
+4. 默认只读，不会自动改文件或跑测试。
 
-1. 新建会话
-2. 在会话设置里填写 `workspace_root`
-3. 需要改代码时，打开 `allow_write`
-4. 需要跑命令或测试时，打开 `allow_shell`
-5. 如果要使用“运行测试”按钮，填写 `test_command`
-6. 在右侧输入任务，例如“修复登录接口并补最小测试”
+### 3. Agent 执行
 
-常见设置说明：
+适合分析、修改和验证当前项目。
 
-- `workspace_root`：当前会话绑定的项目目录，支持绝对路径，也支持相对于仓库根目录的路径
-- `allow_write`：允许 Agent 修改工作区内文件
-- `allow_shell`：允许 Agent 执行命令
-- `test_command`：例如 `python -m pytest -q`
-- `auto_run_tests`：检测到写入后自动运行测试
-- `max_turns`：单次任务最多执行的 agent 回合数
+1. 新建会话。
+2. 设置真实存在的 `workspace_root`。
+3. 需要改文件时打开 `allow_write`。
+4. 需要运行命令或测试时打开 `allow_shell`。
+5. 如果要让系统自动跑测试，再填写 `test_command`。
 
-受控命令默认允许一组低风险只读前缀：
-- `git status`
-- `git diff`
-- `rg`
-- `pytest`
-- `python -m pytest`
-- `python -m compileall`
-- `ruff check`
+建议优先在会话里明确这些设置：
 
-### 文件树 / 编辑器 / 会话区
+1. `workspace_root`：会话绑定的工作区目录。
+2. `allow_write`：允许写文件。
+3. `allow_shell`：允许执行允许列表中的命令。
+4. `test_command`：例如 `python -m pytest -q`。
+5. `auto_run_tests`：检测到写入后自动跑测试。
+6. `max_turns`：单次 Agent 执行的最大轮次。
 
-- 左侧：当前工作区文件树
-- 中间：代码编辑器，支持多标签
-- 右侧：会话列表、聊天区、发送/停止按钮
+### 4. 会话数据
 
-会话数据默认保存在：
+会话会保存到：
 
 `data/sessions/<session_id>.json`
 
-## 前端资源结构
+## RAG 索引
 
-当前 Web 前端已经从单个超长模板拆成模板和静态资源，方便维护：
-
-- `app/web/templates/index.html`：页面骨架和 DOM 结构
-- `app/web/static/web/index.css`：页面样式
-- `app/web/static/web/index.js`：前端交互、布局拖拽、会话与编辑器逻辑
-- `app/web/main.py`：挂载 `/static`，主页会自动加载上述 CSS / JS
-
-如果要调整前端，通常只需要修改 `index.css` 或 `index.js`，而不是继续在 `index.html` 里维护大段内联代码。
-
-## 首次使用建议
-
-如果你准备在真实项目里长期使用任务模式，建议先构建索引：
+如果你打算在真实项目里长期使用 Agent，建议先构建索引：
 
 ```bash
 python scripts/build_index.py --workspace-root .
@@ -163,15 +174,9 @@ python scripts/build_index.py --workspace-root .
 python scripts/build_index.py --workspace-root . --force-reindex
 ```
 
-如果你只是用问答模式聊天，可以先不做这一步。
+索引会放在 `data/index/<digest>` 下，按工作区隔离。
 
-## 常用命令
-
-### 启动 Web
-
-```bash
-python -m app.web
-```
+## 常用脚本
 
 ### 构建索引
 
@@ -185,97 +190,78 @@ python scripts/build_index.py --workspace-root .
 python scripts/run_eval.py
 ```
 
-评测结果会写到：
+评测结果默认写到：
 
 `outputs/eval_result.json`
 
-Web 页面里的“最近评测”和 `/eval/latest` 会读取这个文件，并展示：
-- `success_rate / task_completion_rate`
-- `retrieval_hit_rate / retrieval_mrr`
-- `avg_duration_ms / recovery_trigger_rate`
-
-如果你只是想快速验证评测流程，或者本地 embedding 首次加载较慢，可以先在 `.env` 里设置：
-
-```env
-EMBEDDING_BACKEND=hash
-```
+Web 页面中的“最近评测”和 `/eval/latest` 会读取这个文件。
 
 ### 清理产物
 
-先看会删什么：
+先预览会删什么：
 
 ```bash
 python scripts/clear_state.py --dry-run
 ```
 
-常见清理：
+清理常见生成物：
 
 ```bash
 python scripts/clear_state.py --include-pytest-cache --include-pycache
 python scripts/clear_state.py --remove-eval-result
 ```
 
-### 跑测试
+### 运行测试
 
 ```bash
 pytest -q
 ```
 
-## 目录说明
+## 常见接口
 
-- `app/web/main.py`：FastAPI 入口，负责挂载静态资源
-- `app/web/templates/index.html`：前端页面骨架
-- `app/web/static/web/index.css`：前端样式
-- `app/web/static/web/index.js`：前端交互逻辑
-- `app/web/service.py`：Web 服务层
-- `app/web/session_store.py`：会话持久化
-- `scripts/build_index.py`：构建索引
-- `scripts/run_eval.py`：运行最小评测
-- `scripts/clear_state.py`：清理产物
+1. `GET /sessions`：列出会话。
+2. `POST /sessions`：创建会话。
+3. `GET /sessions/{session_id}`：读取会话快照。
+4. `PATCH /sessions/{session_id}`：更新会话设置。
+5. `DELETE /sessions/{session_id}`：删除会话。
+6. `POST /sessions/{session_id}/messages`：发送消息，支持 `?stream=true`。
+7. `POST /sessions/{session_id}/tests/run`：按会话配置运行测试。
+8. `GET /sessions/{session_id}/workspace/tree`：读取工作区目录树。
+9. `GET /sessions/{session_id}/workspace/file`：读取工作区文件。
+10. `PUT /sessions/{session_id}/workspace/file`：写入工作区文件。
+11. `POST /system/pick-folder`：打开文件夹选择器。
+12. `POST /system/pick-file`：打开文件选择器。
+13. `GET /eval/latest`：读取最新评测结果。
 
-## 常见问题
+## 配置说明
 
-### 1. 启动后打不开页面
+### LLM
 
-先看终端是否报错，然后确认端口是否被占用。默认端口是 `8765`。
+1. `LLM_PROVIDER`：`deepseek` 或 `openai`。
+2. `LLM_MODEL`：模型名。
+3. `DEEPSEEK_API_KEY`：DeepSeek Key。
+4. `OPENAI_API_KEY`：OpenAI 或兼容接口 Key。
+5. `OPENAI_BASE_URL`：自定义兼容接口地址，可选。
 
-### 2. 任务模式提示 `workspace_root` 无效
+### Embedding
 
-说明你填写的目录不存在，或者不是目录。请改成真实存在的本地项目路径。
+1. `EMBEDDING_BACKEND=sentence_transformers`：默认推荐，检索质量较好。
+2. `EMBEDDING_BACKEND=openai`：使用 OpenAI 兼容 embeddings 接口。
+3. `EMBEDDING_BACKEND=hash`：无需额外模型，适合快速验证。
 
-### 3. 第一次构建索引很慢
+### Web
 
-这是正常的。项目较大时，首次索引会花一些时间；后续会复用持久化结果。
+1. `WEB_PORT`：Web 端口，默认 `8765`。
 
-### 4. 不想依赖本地 embedding 模型
+### Agent 权限
 
-可以在 `.env` 里设置：
+1. `allow_write`：允许文件写入工具。
+2. `allow_shell`：允许命令执行工具，但只会注册允许的命令。
+3. `test_command`：当 `allow_shell` 开启时，测试命令可被允许执行。
 
-```env
-EMBEDDING_BACKEND=hash
-```
+## 备注
 
-这适合快速跑通流程，但检索质量会差一些。
-
-### 5. Web 里为什么不能直接改文件或跑测试
-
-因为这是会话级权限控制：
-
-- 没开 `allow_write`，就不能保存文件
-- 没开 `allow_shell`，就不能执行测试命令
-
-## 一个最短上手流程
-
-```bash
-pip install -r requirements.txt
-cp .env.example .env
-python -m app.web
-```
-
-然后：
-
-1. 打开 `http://127.0.0.1:8765`
-2. 新建会话
-3. 填 `workspace_root`
-4. 按需打开 `allow_write` / `allow_shell`
-5. 输入任务并发送
+1. 读取仓库源码前，建议先构建索引，这样检索和 Agent 体验会稳定很多。
+2. 如果只是问答，不需要填写 `workspace_root`。
+3. 如果提问涉及当前项目的文件、目录或入口，尽量先设置 `workspace_root`。
+4. 如果要改文件或跑测试，必须明确打开对应权限。
