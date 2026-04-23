@@ -28,6 +28,25 @@ def test_session_store_allows_empty_workspace_root(tmp_path: Path) -> None:
     assert loaded["workspace_root"] == ""
 
 
+def test_session_store_normalizes_orchestration_settings(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    created = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={
+            "orchestration_mode": "TRIAD",
+            "review_required": True,
+            "max_replan_rounds": 2,
+            "retrieval_profile": "dense",
+        },
+    )
+    loaded = store.get_session(created["session_id"])
+    settings = loaded["settings"]
+    assert settings["orchestration_mode"] == "triad"
+    assert settings["review_required"] is True
+    assert settings["max_replan_rounds"] == 2
+    assert settings["retrieval_profile"] == "dense"
+
+
 def test_session_store_list_sessions_sorted_by_updated_at(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     first = store.create_session(workspace_root=str(tmp_path / "one"))

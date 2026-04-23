@@ -12,6 +12,7 @@ from app.contracts import (
     SessionSettingsModel,
     SessionSnapshotModel as SessionSnapshotRecord,
     dump_model,
+    normalize_max_replan_rounds,
     normalize_max_turns,
     normalize_messages,
     normalize_test_summary,
@@ -55,6 +56,14 @@ def normalize_session_settings(settings: dict[str, Any] | None) -> dict[str, Any
         merged["auto_run_tests"] = bool(settings.get("auto_run_tests"))
     if "max_turns" in settings:
         merged["max_turns"] = normalize_max_turns(settings.get("max_turns"))
+    if "orchestration_mode" in settings:
+        merged["orchestration_mode"] = str(settings.get("orchestration_mode") or "single").strip().lower()
+    if "review_required" in settings:
+        merged["review_required"] = bool(settings.get("review_required"))
+    if "max_replan_rounds" in settings:
+        merged["max_replan_rounds"] = normalize_max_replan_rounds(settings.get("max_replan_rounds"))
+    if "retrieval_profile" in settings:
+        merged["retrieval_profile"] = str(settings.get("retrieval_profile") or "hybrid").strip().lower()
     return dump_model(SessionSettingsModel(**merged))
 
 

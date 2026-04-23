@@ -10,6 +10,7 @@ from app.agent.plan_schema import (
     validate_step_graph,
     validate_tool_args,
 )
+from app.agent.task_spec import TaskSpec
 from app.agent.task_board import TaskBoard
 from app.llm.llm import LLMClient
 from app.llm.prompt import (
@@ -50,6 +51,9 @@ class Planner:
         return self._parse_and_validate_plan(raw=raw, user_query=user_query, recovery=False)
 
     def make_task_board(self, user_query: str, history: list[dict[str, str]]) -> list[dict[str, Any]]:
+        return [spec.to_task_item_dict() for spec in self.make_task_specs(user_query=user_query, history=history)]
+
+    def make_task_specs(self, user_query: str, history: list[dict[str, str]]) -> list[TaskSpec]:
         history_text = self._history_to_text(history)
         user_prompt = build_task_board_user_prompt(user_query=user_query, history_text=history_text)
         raw = self.llm.generate_text(
@@ -57,7 +61,24 @@ class Planner:
             system_prompt=build_task_board_system_prompt(),
         )
         self.logger.debug("Raw task board output: %s", raw)
-        return self._parse_and_validate_task_board(raw=raw)
+        rows = self._parse_and_validate_task_board(raw=raw)
+        specs: list[TaskSpec] = []
+        for row in rows:
+            specs.append(
+                TaskSpec(
+                    id=str(row.get("id", "")),
+                    title=str(row.get("title", "")),
+                    description=str(row.get("description", "")),
+                    acceptance_criteria=str(row.get("acceptance", "")),
+                    owner_role=str(row.get("owner_role", "worker") or "worker"),
+                    evidence_required=[
+                        str(item).strip()
+                        for item in row.get("evidence_required", []) if str(item).strip()
+                    ],
+                    depends_on=[str(item).strip() for item in row.get("depends_on", []) if str(item).strip()],
+                )
+            )
+        return specs
 
     def make_recovery_plan(
         self,

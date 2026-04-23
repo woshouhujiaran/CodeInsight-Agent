@@ -366,10 +366,10 @@ class WebAgentService:
         emit({"event": "stream_profile", "data": {"kind": "phased"}})
         safety_refusal = self.safety_guard.review(user_content)
         snapshot = self.session_store.get_session(session_id)
+        workspace_raw = str(snapshot.get("workspace_root") or "").strip()
         if safety_refusal is not None:
             mode = "qa"
         else:
-            workspace_raw = str(snapshot.get("workspace_root") or "").strip()
             mode, need_mode_arbitration = self.mode_decider.infer_with_meta(user_content)
             if need_mode_arbitration:
                 mode = arbitrate_turn_mode(

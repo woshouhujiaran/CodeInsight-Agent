@@ -26,6 +26,9 @@ class MessageModel(_ExtraAllowModel):
 DEFAULT_MAX_TURNS = 8
 MIN_MAX_TURNS = 1
 MAX_MAX_TURNS = 20
+DEFAULT_MAX_REPLAN_ROUNDS = 1
+MIN_MAX_REPLAN_ROUNDS = 0
+MAX_MAX_REPLAN_ROUNDS = 3
 
 
 def normalize_max_turns(value: Any) -> int:
@@ -40,17 +43,58 @@ def normalize_max_turns(value: Any) -> int:
     return parsed
 
 
+def normalize_max_replan_rounds(value: Any) -> int:
+    if isinstance(value, bool):
+        return DEFAULT_MAX_REPLAN_ROUNDS
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return DEFAULT_MAX_REPLAN_ROUNDS
+    if parsed < MIN_MAX_REPLAN_ROUNDS or parsed > MAX_MAX_REPLAN_ROUNDS:
+        return DEFAULT_MAX_REPLAN_ROUNDS
+    return parsed
+
+
 class SessionSettingsModel(_ExtraAllowModel):
     allow_write: bool = False
     allow_shell: bool = False
     test_command: str = ""
     auto_run_tests: bool = False
     max_turns: int = Field(default=DEFAULT_MAX_TURNS, ge=MIN_MAX_TURNS, le=MAX_MAX_TURNS)
+    orchestration_mode: str = "single"
+    review_required: bool = False
+    max_replan_rounds: int = Field(
+        default=DEFAULT_MAX_REPLAN_ROUNDS,
+        ge=MIN_MAX_REPLAN_ROUNDS,
+        le=MAX_MAX_REPLAN_ROUNDS,
+    )
+    retrieval_profile: str = "hybrid"
 
     @field_validator("max_turns", mode="before")
     @classmethod
     def _normalize_max_turns(cls, value: Any) -> int:
         return normalize_max_turns(value)
+
+    @field_validator("max_replan_rounds", mode="before")
+    @classmethod
+    def _normalize_max_replan_rounds(cls, value: Any) -> int:
+        return normalize_max_replan_rounds(value)
+
+    @field_validator("orchestration_mode", mode="before")
+    @classmethod
+    def _normalize_orchestration_mode(cls, value: Any) -> str:
+        text = str(value or "single").strip().lower()
+        if text not in {"single", "triad"}:
+            return "single"
+        return text
+
+    @field_validator("retrieval_profile", mode="before")
+    @classmethod
+    def _normalize_retrieval_profile(cls, value: Any) -> str:
+        text = str(value or "hybrid").strip().lower()
+        if text not in {"dense", "bm25", "hybrid"}:
+            return "hybrid"
+        return text
 
 
 class TestSummaryModel(_ExtraAllowModel):

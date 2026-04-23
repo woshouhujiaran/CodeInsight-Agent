@@ -868,6 +868,42 @@ def test_web_service_project_optimization_request_skips_mode_arbitration(tmp_pat
     assert fake_llm.calls == []
 
 
+def test_web_service_triad_mode_runs_reviewer_and_replan(tmp_path: Path) -> None:
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(tmp_path),
+        settings={
+            "orchestration_mode": "triad",
+            "review_required": True,
+            "max_replan_rounds": 1,
+            "allow_write": True,
+            "allow_shell": False,
+        },
+    )
+    factory = FakeAgentFactory(
+        turns=[
+            build_turn("worker round1 step1", [{"tool": "search_tool", "status": "ok"}]),
+            build_turn("worker round1 step2", [{"tool": "apply_patch_tool", "status": "ok"}]),
+            build_turn("worker round1 step3", [{"tool": "analyze_tool", "status": "ok"}]),
+            build_turn("FAIL: evidence is weak; RETRY: include stronger checks", [{"tool": "analyze_tool", "status": "ok"}]),
+            build_turn("worker round2 step1", [{"tool": "search_tool", "status": "ok"}]),
+            build_turn("worker round2 step2", [{"tool": "apply_patch_tool", "status": "ok"}]),
+            build_turn("worker round2 step3", [{"tool": "analyze_tool", "status": "ok"}]),
+            build_turn("PASS: good enough", [{"tool": "analyze_tool", "status": "ok"}]),
+        ]
+    )
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(session["session_id"], "请分析并修改当前项目中的实现")
+
+    assert result["task_results"]
+    assert len(result["task_results"]) >= 6
+    prompts = factory.created_agents[0].recorded_prompts
+    assert any("ReviewerAgent" in prompt for prompt in prompts)
+    tool_results = result["session"]["turn_metadata"][-1]["tool_results"]
+    assert any(item.get("agent_role") == "reviewer" for item in tool_results)
+
+
 def test_web_service_stream_emits_session_with_current_user_message(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(workspace_root=str(tmp_path))

@@ -280,6 +280,9 @@ class TurnModeDecider:
         if self._PATH_PATTERN.search(text):
             return ("agentic", False)
 
+        if self._looks_like_location_with_verification_request(text, lowered):
+            return ("agentic", False)
+
         if self._contains_any(text, lowered, self._PROJECT_SCOPE_MARKERS) and self._contains_any(
             text,
             lowered,
@@ -298,6 +301,9 @@ class TurnModeDecider:
             lowered,
             ("index.html", "html", "页面", "文件", "按钮", "输入框", "密码框", "复选框", "placeholder", "错误", "登录"),
         ):
+            return ("agentic", False)
+
+        if self._looks_like_location_with_verification_request(text, lowered):
             return ("agentic", False)
 
         if self._looks_like_workspace_qa_request(text, lowered):
@@ -618,6 +624,20 @@ class TurnModeDecider:
             and self._contains_any(text, lowered, target_markers)
             and (has_readonly_guard or not self._contains_any(text, lowered, write_or_run_markers))
         )
+
+    def _looks_like_location_with_verification_request(self, text: str, lowered: str) -> bool:
+        followup_readonly_markers = (
+            "基于你刚才",
+            "基于刚才",
+            "还是先不改代码",
+            "先不改代码",
+            "不修改文件",
+        )
+        if any(marker in text for marker in followup_readonly_markers):
+            return False
+        has_locate = ("定位" in text) or ("找到" in text) or ("查找" in text) or ("关键文件" in text) or ("实现" in text)
+        has_verify = ("验证" in text) or ("测试" in text) or ("怎么验证" in text) or ("如何验证" in text)
+        return has_locate and has_verify
 
     def _looks_like_workspace_file_explanation_request(self, text: str, lowered: str) -> bool:
         if not self._PATH_PATTERN.search(text):
@@ -1111,6 +1131,13 @@ class AgenticExecutionResult:
     last_nonempty_answer: str
 
 
+@dataclass(frozen=True)
+class ReviewDecision:
+    passed: bool
+    reason: str
+    retry_suggestion: str
+
+
 class SessionTestCoordinator:
     def __init__(
         self,
@@ -1192,6 +1219,18 @@ class AgenticTaskCoordinator:
             allow_shell=bool(settings.get("allow_shell")),
             test_command=str(settings.get("test_command") or ""),
         )
+        orchestration_mode = str(settings.get("orchestration_mode") or "single").strip().lower()
+        if orchestration_mode == "triad":
+            return self._execute_triad(
+                agent=agent,
+                snapshot=snapshot,
+                user_content=user_content,
+                history_before_turn=history_before_turn,
+                workspace_root=workspace_root,
+                settings=settings,
+                emit=emit,
+                cancel_event=cancel_event,
+            )
         board = self._build_board(
             agent=agent,
             user_content=user_content,
@@ -1307,6 +1346,281 @@ class AgenticTaskCoordinator:
             combined_tool_trace=combined_tool_trace,
             last_nonempty_answer=last_nonempty_answer,
         )
+
+    def _execute_triad(
+        self,
+        *,
+        agent: Any,
+        snapshot: dict[str, Any],
+        user_content: str,
+        history_before_turn: list[dict[str, str]],
+        workspace_root: str,
+        settings: dict[str, Any],
+        emit: EventCallback,
+        cancel_event: Any | None,
+    ) -> AgenticExecutionResult:
+        review_required = bool(settings.get("review_required"))
+        max_replan_rounds = max(0, int(settings.get("max_replan_rounds", 1)))
+        board = self._build_board(
+            agent=agent,
+            user_content=user_content,
+            history_before_turn=history_before_turn,
+        )
+        combined_tool_trace: list[dict[str, Any]] = []
+        task_results: list[dict[str, Any]] = []
+        last_nonempty_answer = ""
+        replan_round = 0
+
+        while True:
+            snapshot["tasks"] = board.to_dicts()
+            snapshot = self.session_store.save_session(snapshot)
+            emit({"event": "task_board", "data": snapshot["tasks"]})
+            emit(
+                {
+                    "event": "assistant_delta",
+                    "data": {"content": f"[Worker Round {replan_round + 1}]\n{self.renderer.compose_step_plan(board)}\n\n"},
+                }
+            )
+
+            round_result = self._execute_single_board(
+                agent=agent,
+                board=board,
+                snapshot=snapshot,
+                original_goal=user_content,
+                workspace_root=workspace_root,
+                settings=settings,
+                emit=emit,
+                cancel_event=cancel_event,
+                prior_tool_trace=combined_tool_trace,
+            )
+            snapshot = round_result["snapshot"]
+            round_tasks = round_result["task_results"]
+            round_trace = round_result["tool_trace"]
+            round_answer = round_result["answer"]
+            task_results.extend(round_tasks)
+            combined_tool_trace.extend(self._tag_tool_trace(round_trace, role="worker"))
+            if round_answer and self._prefer_as_final_answer(round_answer, last_nonempty_answer):
+                last_nonempty_answer = round_answer
+
+            if not review_required:
+                break
+            decision, review_answer, review_trace = self._review_round(
+                agent=agent,
+                user_content=user_content,
+                board=board,
+                worker_results=round_tasks,
+                workspace_root=workspace_root,
+                settings=settings,
+                cancel_event=cancel_event,
+            )
+            combined_tool_trace.extend(self._tag_tool_trace(review_trace, role="reviewer"))
+            emit({"event": "assistant_delta", "data": {"content": f"[Reviewer] {review_answer}\n\n"}})
+            if decision.passed:
+                break
+            if replan_round >= max_replan_rounds:
+                emit(
+                    {
+                        "event": "assistant_delta",
+                        "data": {"content": "[Reviewer] retries exhausted, finalize current result.\n\n"},
+                    }
+                )
+                break
+            board = self._replan_board(
+                agent=agent,
+                board=board,
+                user_content=user_content,
+                history_before_turn=history_before_turn,
+                reason=decision.reason,
+                retry_suggestion=decision.retry_suggestion,
+            )
+            replan_round += 1
+
+        return AgenticExecutionResult(
+            snapshot=snapshot,
+            board=board,
+            task_results=task_results,
+            combined_tool_trace=combined_tool_trace,
+            last_nonempty_answer=last_nonempty_answer,
+        )
+
+    def _execute_single_board(
+        self,
+        *,
+        agent: Any,
+        board: TaskBoard,
+        snapshot: dict[str, Any],
+        original_goal: str,
+        workspace_root: str,
+        settings: dict[str, Any],
+        emit: EventCallback,
+        cancel_event: Any | None,
+        prior_tool_trace: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        tool_trace: list[dict[str, Any]] = []
+        task_results: list[dict[str, Any]] = []
+        answer = ""
+        for step_index, task in enumerate(board.ordered_tasks(), start=1):
+            self._ensure_not_cancelled(cancel_event)
+            if self._dependency_failed(task, board):
+                failed_task = board.mark_failed(task.id, summary="dependency failed, current task skipped")
+                snapshot = self._save_board(snapshot, board)
+                task_result = normalize_task_results(
+                    [
+                        {
+                            "task_id": failed_task.id,
+                            "title": failed_task.title,
+                            "status": failed_task.status,
+                            "summary": failed_task.summary,
+                            "answer": "",
+                            "tool_trace": [],
+                            "task_outcome": "blocked",
+                            "task_reason": "dependency_failed",
+                            "tool_success_count": 0,
+                            "tool_error_count": 0,
+                        }
+                    ]
+                )[0]
+                task_results.append(task_result)
+                emit({"event": "task_update", "data": task_result})
+                continue
+
+            running_task = board.mark_in_progress(task.id)
+            snapshot = self._save_board(snapshot, board)
+            emit({"event": "task_update", "data": running_task.to_dict()})
+            task_prompt = self._build_task_prompt(
+                original_goal=original_goal,
+                task=running_task,
+                board=board,
+                workspace_root=workspace_root,
+                settings=settings,
+                prior_tool_trace=prior_tool_trace + tool_trace,
+            )
+            turn = agent.run_agentic(
+                task_prompt,
+                max_turns=int(settings.get("max_turns", 8)),
+                workspace_root=workspace_root,
+                persist_memory=False,
+                cancel_event=cancel_event,
+            )
+            self._ensure_not_cancelled(cancel_event)
+            run_trace = normalize_tool_trace(turn.tool_trace)
+            tool_trace.extend(run_trace)
+            if turn.answer.strip() and self._prefer_as_final_answer(turn.answer.strip(), answer):
+                answer = turn.answer.strip()
+
+            evaluation = self.renderer.evaluate_task_result(running_task, turn)
+            summary = self.renderer.summarize_task_result(turn, evaluation)
+            final_task = board.mark_done(task.id, summary=summary) if evaluation["succeeded"] else board.mark_failed(task.id, summary=summary)
+            snapshot = self._save_board(snapshot, board)
+            task_result = normalize_task_results(
+                [
+                    {
+                        "task_id": final_task.id,
+                        "title": final_task.title,
+                        "status": final_task.status,
+                        "summary": final_task.summary,
+                        "answer": turn.answer,
+                        "tool_trace": run_trace,
+                        "task_outcome": "completed" if evaluation["succeeded"] else "incomplete",
+                        "task_reason": str(evaluation["reason"]),
+                        "tool_success_count": int(evaluation["tool_success_count"]),
+                        "tool_error_count": int(evaluation["tool_error_count"]),
+                    }
+                ]
+            )[0]
+            task_results.append(task_result)
+            emit({"event": "task_update", "data": task_result})
+            emit(
+                {
+                    "event": "assistant_delta",
+                    "data": {"content": f"{self.renderer.compose_step_update(final_task, step_index=step_index)}\n\n"},
+                }
+            )
+
+        return {
+            "snapshot": snapshot,
+            "task_results": task_results,
+            "tool_trace": tool_trace,
+            "answer": answer,
+        }
+
+    def _review_round(
+        self,
+        *,
+        agent: Any,
+        user_content: str,
+        board: TaskBoard,
+        worker_results: list[dict[str, Any]],
+        workspace_root: str,
+        settings: dict[str, Any],
+        cancel_event: Any | None,
+    ) -> tuple[ReviewDecision, str, list[dict[str, Any]]]:
+        preview = []
+        for item in worker_results[-6:]:
+            preview.append(
+                f"- task={item.get('task_id')} status={item.get('status')} reason={item.get('task_reason')}"
+            )
+        prompt = (
+            "You are ReviewerAgent. Decide if current round satisfies user goal.\n"
+            "Output format:\nPASS: <reason>\nor\nFAIL: <reason>; RETRY: <specific suggestion>\n\n"
+            f"User goal:\n{user_content}\n\n"
+            f"Task board:\n{board.to_dicts()}\n\n"
+            f"Worker results:\n{chr(10).join(preview) if preview else '- none'}\n"
+        )
+        turn = agent.run_agentic(
+            prompt,
+            max_turns=max(2, min(4, int(settings.get("max_turns", 8)))),
+            workspace_root=workspace_root,
+            persist_memory=False,
+            cancel_event=cancel_event,
+        )
+        answer = str(turn.answer or "").strip()
+        lowered = answer.lower()
+        failed = any(token in lowered or token in answer for token in ("fail", "failed", "不通过", "未通过", "retry"))
+        retry_suggestion = ""
+        if "retry:" in lowered:
+            retry_suggestion = answer[lowered.find("retry:") + len("retry:") :].strip()
+        decision = ReviewDecision(
+            passed=not failed,
+            reason=(answer[:240] if answer else "empty reviewer output"),
+            retry_suggestion=retry_suggestion,
+        )
+        return decision, answer or decision.reason, normalize_tool_trace(turn.tool_trace)
+
+    def _replan_board(
+        self,
+        *,
+        agent: Any,
+        board: TaskBoard,
+        user_content: str,
+        history_before_turn: list[dict[str, str]],
+        reason: str,
+        retry_suggestion: str,
+    ) -> TaskBoard:
+        replan_query = (
+            f"{user_content}\n\n"
+            f"[review_reason]\n{reason}\n"
+            f"[retry_suggestion]\n{retry_suggestion or 'n/a'}\n"
+            "Please regenerate task board for unresolved gaps."
+        )
+        try:
+            return TaskBoard.from_dicts(agent.planner.make_task_board(replan_query, history_before_turn))
+        except Exception:  # noqa: BLE001
+            rows = []
+            for row in board.to_dicts():
+                x = dict(row)
+                x["status"] = "pending"
+                x["summary"] = ""
+                rows.append(x)
+            return TaskBoard.from_dicts(rows)
+
+    def _tag_tool_trace(self, rows: list[dict[str, Any]], *, role: str) -> list[dict[str, Any]]:
+        tagged: list[dict[str, Any]] = []
+        for row in rows:
+            x = dict(row)
+            x["agent_role"] = role
+            tagged.append(x)
+        return tagged
 
     def _save_board(self, snapshot: dict[str, Any], board: TaskBoard) -> dict[str, Any]:
         snapshot["tasks"] = board.to_dicts()

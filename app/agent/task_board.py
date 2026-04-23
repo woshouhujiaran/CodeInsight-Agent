@@ -14,6 +14,8 @@ class TaskItem:
     title: str
     description: str
     acceptance: str
+    owner_role: str = "worker"
+    evidence_required: list[str] = field(default_factory=list)
     depends_on: list[str] = field(default_factory=list)
     status: str = "pending"
     summary: str = ""
@@ -23,6 +25,8 @@ class TaskItem:
         self.title = str(self.title).strip()
         self.description = str(self.description).strip()
         self.acceptance = str(self.acceptance).strip()
+        self.owner_role = str(self.owner_role or "worker").strip().lower()
+        self.evidence_required = [str(item).strip() for item in self.evidence_required if str(item).strip()]
         self.depends_on = [str(item).strip() for item in self.depends_on if str(item).strip()]
         self.status = str(self.status or "pending").strip()
         self.summary = str(self.summary or "").strip()
@@ -35,6 +39,8 @@ class TaskItem:
             raise ValueError(f"task `{self.id}` description cannot be empty")
         if not self.acceptance:
             raise ValueError(f"task `{self.id}` acceptance cannot be empty")
+        if self.owner_role not in {"planner", "worker", "reviewer"}:
+            raise ValueError(f"task `{self.id}` has invalid owner_role `{self.owner_role}`")
         if self.status not in TASK_STATUSES:
             raise ValueError(f"task `{self.id}` has invalid status `{self.status}`")
 
@@ -46,6 +52,8 @@ class TaskItem:
             "depends_on": list(self.depends_on),
             "status": self.status,
             "acceptance": self.acceptance,
+            "owner_role": self.owner_role,
+            "evidence_required": list(self.evidence_required),
             "summary": self.summary,
         }
 
