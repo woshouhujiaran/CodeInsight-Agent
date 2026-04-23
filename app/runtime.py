@@ -156,6 +156,7 @@ def create_agent_from_env(
     *,
     memory: ConversationMemory | None = None,
     top_k: int = 5,
+    retrieval_profile: str | None = None,
     force_reindex: bool = False,
     allow_write: bool = False,
     allow_shell: bool = False,
@@ -176,7 +177,10 @@ def create_agent_from_env(
     logger.info("RAG: %s", rag_meta)
 
     resolved_root = Path(workspace_root).resolve()
-    retriever = CodeRetriever(store=store)
+    retriever = CodeRetriever(
+        store=store,
+        retrieval_profile=str(retrieval_profile or os.getenv("RETRIEVAL_PROFILE", "hybrid")),
+    )
     registry = ToolRegistry()
     registry.register(SearchTool(retriever=retriever, top_k=top_k))
     registry.register(AnalyzeTool(llm=llm))

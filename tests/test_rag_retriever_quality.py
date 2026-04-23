@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from app.rag.retriever import CodeRetriever
 
 
@@ -49,6 +51,26 @@ class LexicalStore:
         ]
 
 
+class BM25OnlyStore:
+    def __init__(self) -> None:
+        self.documents = [
+            SimpleNamespace(
+                file_path="app/auth/session_store.py",
+                content="def persist_session(snapshot):\n    return snapshot\n",
+                chunk_id="bm25-1",
+                symbol_name="persist_session",
+                start_line=1,
+                end_line=2,
+                chunk_kind="function",
+                chunk_version="v3",
+                content_hash="h1",
+            )
+        ]
+
+    def search(self, query: str, top_k: int = 5) -> list[dict[str, str | float]]:
+        return []
+
+
 def test_retriever_dedup_and_why_matched() -> None:
     retriever = CodeRetriever(store=DummyStore())  # type: ignore[arg-type]
     hits = retriever.retrieve("login auth", top_k=5)
@@ -85,3 +107,39 @@ def test_retriever_returns_structured_metadata_fields() -> None:
     assert "end_line" in row
     assert "chunk_kind" in row
     assert row.get("chunk_version") == "v3"
+
+
+def test_retriever_dense_profile_skips_bm25() -> None:
+    retriever = CodeRetriever(store=BM25OnlyStore(), retrieval_profile="dense")  # type: ignore[arg-type]
+    hits = retriever.retrieve("persist_session", top_k=3)
+    assert hits == []
+
+
+def test_retriever_bm25_profile_returns_lexical_hits() -> None:
+    retriever = CodeRetriever(store=BM25OnlyStore(), retrieval_profile="bm25")  # type: ignore[arg-type]
+    hits = retriever.retrieve("persist_session", top_k=3)
+    assert hits
+    assert hits[0]["file_path"] == "app/auth/session_store.py"
+    assert "bm25" in str(hits[0]["why_matched"])
+
+
+def test_retriever_rebuilds_bm25_index_when_doc_content_changes_with_same_count() -> None:
+    store = BM25OnlyStore()
+    retriever = CodeRetriever(store=store, retrieval_profile="bm25")  # type: ignore[arg-type]
+    first_hits = retriever.retrieve("persist_session", top_k=3)
+    assert first_hits
+
+    store.documents[0] = SimpleNamespace(
+        file_path="app/auth/session_store.py",
+        content="def rotate_token(token):\n    return token\n",
+        chunk_id="bm25-1",
+        symbol_name="rotate_token",
+        start_line=1,
+        end_line=2,
+        chunk_kind="function",
+        chunk_version="v3",
+        content_hash="h2",
+    )
+    refreshed_hits = retriever.retrieve("rotate_token", top_k=3)
+    assert refreshed_hits
+    assert "rotate_token" in str(refreshed_hits[0]["content"])

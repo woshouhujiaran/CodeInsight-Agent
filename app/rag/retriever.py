@@ -3,6 +3,7 @@
 import math
 import re
 import time
+import hashlib
 from dataclasses import dataclass
 from typing import Any
 
@@ -113,13 +114,15 @@ class CodeRetriever:
         *,
         dense_weight: float = 0.65,
         lexical_weight: float = 0.35,
+        retrieval_profile: str = "hybrid",
     ) -> None:
         self.store = store
         self.logger = get_logger(logger_name)
         self.dense_weight = max(0.0, float(dense_weight))
         self.lexical_weight = max(0.0, float(lexical_weight))
+        self.retrieval_profile = self._normalize_retrieval_profile(retrieval_profile)
         self._bm25 = _BM25Index()
-        self._bm25_doc_count = -1
+        self._bm25_signature = ""
 
     def retrieve(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         started = time.perf_counter()
@@ -127,11 +130,14 @@ class CodeRetriever:
         rewritten_queries = self._rewrite_queries(query)
         per_query_k = max(top_k, min(10, top_k * 2))
 
-        self._ensure_lexical_index()
+        if self.retrieval_profile in {"bm25", "hybrid"}:
+            self._ensure_lexical_index()
         raw_hits: list[dict[str, Any]] = []
         for q in rewritten_queries:
-            raw_hits.extend(self.store.search(query=q, top_k=per_query_k))
-            raw_hits.extend(self._lexical_search(query=q, top_k=per_query_k))
+            if self.retrieval_profile in {"dense", "hybrid"}:
+                raw_hits.extend(self.store.search(query=q, top_k=per_query_k))
+            if self.retrieval_profile in {"bm25", "hybrid"}:
+                raw_hits.extend(self._lexical_search(query=q, top_k=per_query_k))
 
         deduped = self._dedupe_hits(raw_hits)
         ranked = self._rerank_hits(query=query, hits=deduped)[:top_k]
@@ -152,7 +158,8 @@ class CodeRetriever:
 
     def _ensure_lexical_index(self) -> None:
         docs = getattr(self.store, "documents", [])
-        if self._bm25_doc_count == len(docs):
+        signature = self._bm25_docs_signature(docs)
+        if self._bm25_signature == signature:
             return
         payload = [
             {
@@ -168,7 +175,7 @@ class CodeRetriever:
             for doc in docs
         ]
         self._bm25.build(payload)
-        self._bm25_doc_count = len(docs)
+        self._bm25_signature = signature
 
     def _lexical_search(self, query: str, top_k: int) -> list[dict[str, Any]]:
         rows = self._bm25.search(query=query, top_k=top_k)
@@ -333,3 +340,24 @@ class CodeRetriever:
         if matched == 0:
             return 0.0
         return min(0.06, matched * 0.02)
+
+    def _normalize_retrieval_profile(self, retrieval_profile: str) -> str:
+        mode = str(retrieval_profile or "hybrid").strip().lower()
+        if mode not in {"dense", "bm25", "hybrid"}:
+            return "hybrid"
+        return mode
+
+    def _bm25_docs_signature(self, docs: list[Any]) -> str:
+        hasher = hashlib.sha1()
+        for doc in docs:
+            hasher.update(str(getattr(doc, "chunk_id", "")).encode("utf-8"))
+            hasher.update(b"\x1f")
+            hasher.update(str(getattr(doc, "file_path", "")).encode("utf-8"))
+            hasher.update(b"\x1f")
+            content_hash = str(getattr(doc, "content_hash", "")).strip()
+            if content_hash:
+                hasher.update(content_hash.encode("utf-8"))
+            else:
+                hasher.update(str(getattr(doc, "content", "")).encode("utf-8"))
+            hasher.update(b"\x1e")
+        return hasher.hexdigest()
