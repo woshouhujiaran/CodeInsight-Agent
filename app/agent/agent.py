@@ -12,6 +12,7 @@ from app.agent.executor import Executor
 from app.agent.memory import ConversationMemory
 from app.agent.planner import Planner
 from app.agent.recovery import apply_recovery_strategy, evaluate_recovery
+from app.agent.context_builder import build_context
 from app.agent.tool_specs import compact_tool_specs_for_prompt
 from app.llm.llm import AGENTIC_JSON_SYSTEM_SUFFIX, AGENTIC_TOOL_USE_POLICY, LLMClient
 from app.utils.logger import get_logger, log_event, set_trace_id
@@ -413,25 +414,10 @@ class CodeAgent:
         primary_results: list[dict[str, Any]],
         recovery_results: list[dict[str, Any]] | None,
     ) -> str:
-        sections: list[str] = [f"User Query:\n{user_query}"]
-
-        def append_block(title: str, tool_results: list[dict[str, Any]]) -> None:
-            sections.append(title)
-            for idx, result in enumerate(tool_results, start=1):
-                tool_name = result.get("tool", "unknown_tool")
-                step_id = result.get("step_id", "")
-                status = result.get("status", "unknown")
-                output = result.get("output", "")
-                crit = result.get("success_criteria", "")
-                head = f"[{idx}] step_id={step_id} Tool: {tool_name}\nStatus: {status}"
-                if crit:
-                    head += f"\nSuccess criteria: {crit}"
-                sections.append(f"{head}\nOutput:\n{output}")
-
-        append_block("=== Round 1 (initial plan) tool results ===", primary_results)
-        if recovery_results:
-            append_block("=== Round 2 (recovery replan) tool results ===", recovery_results)
-
-        context = "\n\n".join(sections).strip()
+        context = build_context(
+            user_query=user_query,
+            primary_results=primary_results,
+            recovery_results=recovery_results,
+        )
         self.logger.debug("Built context with %d chars.", len(context))
         return context
