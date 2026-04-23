@@ -525,7 +525,16 @@ class WebAgentService:
         combined_tool_trace = execution.combined_tool_trace
         last_test_summary = snapshot.get("last_test_summary")
         if self.test_coordinator.should_auto_run_tests(settings, combined_tool_trace):
-            snapshot, last_test_summary = self.test_coordinator.run_for_snapshot(snapshot, emit=emit)
+            snapshot, last_test_summary, verify_trace = self.test_coordinator.execute_and_verify(
+                snapshot=snapshot,
+                settings=settings,
+                agent=execution.agent,
+                user_content=user_content,
+                workspace_root=workspace_root,
+                emit=emit,
+                cancel_event=cancel_event,
+            )
+            combined_tool_trace.extend(verify_trace)
         self._ensure_not_cancelled(cancel_event)
 
         final_answer = self.renderer.compose_final_answer(

@@ -123,6 +123,97 @@ def test_web_service_skips_auto_tests_without_successful_write(tmp_path: Path) -
     assert result["last_test_summary"] is None
 
 
+class _AutoFixingAgent:
+    def __init__(self, workspace_root: Path) -> None:
+        self._workspace_root = workspace_root
+        self._call_index = 0
+        self.recorded_prompts: list[str] = []
+        self.recorded_max_turns: list[int] = []
+        self.planner = FakePlanner()
+
+    def run_agentic(
+        self,
+        user_query: str,
+        *,
+        max_turns: int = 8,
+        workspace_root: str | None = None,
+        persist_memory: bool = True,
+        cancel_event: Event | None = None,
+    ):
+        self._call_index += 1
+        self.recorded_prompts.append(user_query)
+        self.recorded_max_turns.append(max_turns)
+
+        if self._call_index == 1:
+            return build_turn("located target", [{"tool": "search_tool", "status": "ok"}])
+        if self._call_index == 2:
+            # Simulate a claimed write so auto test path is triggered.
+            return build_turn("applied patch", [{"tool": "apply_patch_tool", "status": "ok"}])
+        if self._call_index == 3:
+            return build_turn("verify summary", [{"tool": "analyze_tool", "status": "ok"}])
+
+        target = self._workspace_root / "math_ops.py"
+        target.write_text("def add_one(x):\n    return x + 1\n", encoding="utf-8")
+        return build_turn("auto fix applied", [{"tool": "write_file_tool", "status": "ok"}])
+
+
+class _AutoFixingAgentFactory:
+    def __init__(self) -> None:
+        self.created_agents: list[_AutoFixingAgent] = []
+
+    def __call__(
+        self,
+        workspace_root: str,
+        *,
+        memory: object = None,
+        top_k: int = 5,
+        force_reindex: bool = False,
+        allow_write: bool = False,
+        allow_shell: bool = False,
+        test_command: str = "",
+        index_dir: object = None,
+    ) -> _AutoFixingAgent:
+        agent = _AutoFixingAgent(Path(workspace_root))
+        self.created_agents.append(agent)
+        return agent
+
+
+def test_web_service_execute_and_verify_auto_fixes_real_failure(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    (workspace / "math_ops.py").write_text("def add_one(x):\n    return x + 2\n", encoding="utf-8")
+    (workspace / "test_math_ops.py").write_text(
+        "from math_ops import add_one\n\n\ndef test_add_one():\n    assert add_one(1) == 2\n",
+        encoding="utf-8",
+    )
+
+    store = SessionStore(tmp_path / "sessions")
+    session = store.create_session(
+        workspace_root=str(workspace),
+        settings={
+            "allow_write": True,
+            "allow_shell": True,
+            "auto_run_tests": True,
+            "test_command": f'"{sys.executable}" -m pytest -q',
+        },
+    )
+    factory = _AutoFixingAgentFactory()
+    service = WebAgentService(session_store=store, agent_factory=factory, repo_root=tmp_path)
+
+    result = service.chat(session["session_id"], "请修复 add_one 逻辑并运行测试验证")
+
+    assert result["last_test_summary"] is not None
+    assert result["last_test_summary"]["passed"] is True
+    summaries = [event["data"] for event in result["events"] if event["event"] == "test_summary"]
+    assert len(summaries) >= 2
+    assert summaries[0]["failed"] is True
+    assert summaries[-1]["passed"] is True
+    turn_tool_results = result["session"]["turn_metadata"][-1]["tool_results"]
+    assert any(item.get("agent_role") == "auto_fixer" for item in turn_tool_results)
+    assert any(item.get("auto_fix_attempt") == 1 for item in turn_tool_results)
+    assert (workspace / "math_ops.py").read_text(encoding="utf-8").strip().endswith("x + 1")
+
+
 def test_web_service_marks_write_step_incomplete_without_patch_or_write(tmp_path: Path) -> None:
     store = SessionStore(tmp_path / "sessions")
     session = store.create_session(

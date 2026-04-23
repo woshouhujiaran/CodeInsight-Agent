@@ -1129,6 +1129,7 @@ class AgenticExecutionResult:
     task_results: list[dict[str, Any]]
     combined_tool_trace: list[dict[str, Any]]
     last_nonempty_answer: str
+    agent: Any
 
 
 @dataclass(frozen=True)
@@ -1139,6 +1140,9 @@ class ReviewDecision:
 
 
 class SessionTestCoordinator:
+    _MAX_AUTO_FIX_ATTEMPTS = 3
+    _WRITE_TOOLS = {"apply_patch_tool", "write_file_tool"}
+
     def __init__(
         self,
         *,
@@ -1184,6 +1188,114 @@ class SessionTestCoordinator:
         if emit is not None:
             emit({"event": "test_summary", "data": summary})
         return updated, summary
+
+    def execute_and_verify(
+        self,
+        *,
+        snapshot: dict[str, Any],
+        settings: dict[str, Any],
+        agent: Any,
+        user_content: str,
+        workspace_root: str,
+        emit: EventCallback | None = None,
+        cancel_event: Any | None = None,
+        max_auto_fix_attempts: int = _MAX_AUTO_FIX_ATTEMPTS,
+    ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+        updated, summary = self.run_for_snapshot(snapshot, emit=emit)
+        fix_trace: list[dict[str, Any]] = []
+        if summary.get("passed"):
+            return updated, summary, fix_trace
+        if not settings.get("allow_write"):
+            return updated, summary, fix_trace
+        if agent is None:
+            return updated, summary, fix_trace
+
+        try:
+            parsed_attempts = int(max_auto_fix_attempts)
+        except (TypeError, ValueError):
+            parsed_attempts = self._MAX_AUTO_FIX_ATTEMPTS
+        max_attempts = max(0, min(self._MAX_AUTO_FIX_ATTEMPTS, parsed_attempts))
+        if max_attempts == 0:
+            return updated, summary, fix_trace
+
+        test_command = str(settings.get("test_command") or "").strip()
+        max_turns = max(2, min(10, int(settings.get("max_turns", 8))))
+        current_snapshot = updated
+        current_summary = summary
+
+        for attempt in range(1, max_attempts + 1):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+
+            prompt = self._build_execute_and_verify_prompt(
+                user_content=user_content,
+                test_command=test_command,
+                summary=current_summary,
+                attempt=attempt,
+                max_attempts=max_attempts,
+            )
+            turn = agent.run_agentic(
+                prompt,
+                max_turns=max_turns,
+                workspace_root=workspace_root,
+                persist_memory=False,
+                cancel_event=cancel_event,
+            )
+            turn_trace = normalize_tool_trace(turn.tool_trace)
+            for row in turn_trace:
+                row["auto_fix_attempt"] = attempt
+                row["agent_role"] = row.get("agent_role") or "auto_fixer"
+            fix_trace.extend(turn_trace)
+
+            if emit is not None and str(turn.answer or "").strip():
+                emit(
+                    {
+                        "event": "assistant_delta",
+                        "data": {
+                            "content": (
+                                f"[execute_and_verify] auto-fix attempt {attempt}/{max_attempts}: "
+                                f"{str(turn.answer).strip()}\n\n"
+                            )
+                        },
+                    }
+                )
+
+            wrote_files = any(
+                item.get("status") == "ok" and item.get("tool") in self._WRITE_TOOLS
+                for item in turn_trace
+            )
+            if not wrote_files:
+                break
+
+            current_snapshot, current_summary = self.run_for_snapshot(current_snapshot, emit=emit)
+            if current_summary.get("passed"):
+                break
+
+        return current_snapshot, current_summary, fix_trace
+
+    def _build_execute_and_verify_prompt(
+        self,
+        *,
+        user_content: str,
+        test_command: str,
+        summary: dict[str, Any],
+        attempt: int,
+        max_attempts: int,
+    ) -> str:
+        raw_tail = str(summary.get("raw_tail") or "").strip()
+        return (
+            "你是代码修复执行器。目标：根据测试失败信息进行最小修复，然后等待系统重跑测试验证。\n"
+            f"当前为自动修复第 {attempt}/{max_attempts} 次。\n\n"
+            f"[用户原始目标]\n{user_content}\n\n"
+            f"[测试命令]\n{test_command or '(empty)'}\n\n"
+            f"[最近测试结果]\npassed={bool(summary.get('passed'))}, returncode={summary.get('returncode')}\n\n"
+            f"[失败日志尾部]\n{raw_tail or '(empty)'}\n\n"
+            "要求：\n"
+            "1) 只做与失败根因直接相关的最小改动。\n"
+            "2) 必须通过写工具落地修改（apply_patch_tool 或 write_file_tool）。\n"
+            "3) 不要在这一轮自己运行测试，系统会在你完成修改后自动重跑。\n"
+            "4) 若日志不足以判断，先读取必要文件再修复，不要编造路径。\n"
+        )
 
 
 class AgenticTaskCoordinator:
@@ -1345,6 +1457,7 @@ class AgenticTaskCoordinator:
             task_results=task_results,
             combined_tool_trace=combined_tool_trace,
             last_nonempty_answer=last_nonempty_answer,
+            agent=agent,
         )
 
     def _execute_triad(
@@ -1441,6 +1554,7 @@ class AgenticTaskCoordinator:
             task_results=task_results,
             combined_tool_trace=combined_tool_trace,
             last_nonempty_answer=last_nonempty_answer,
+            agent=agent,
         )
 
     def _execute_single_board(
