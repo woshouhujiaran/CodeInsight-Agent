@@ -7,10 +7,12 @@ from typing import Any, Callable, Iterator
 
 from app.agent.memory import ConversationMemory
 from app.contracts import ServiceEvent, normalize_task_results, normalize_tool_trace
+from app.metrics.quality import summarize_agentic_turn
 from app.runtime import create_agent_from_env, create_llm_from_env
 from app.tools.base_tool import ensure_tool_result
 from app.tools.filesystem_tools import ListDirTool, ReadFileTool
 from app.tools.write_tools import WriteFileTool
+from app.utils.logger import get_logger, log_event
 from app.web.chat_components import (
     AgenticTaskCoordinator,
     AssistantResponseRenderer,
@@ -73,6 +75,7 @@ class WebAgentService:
             "file_mtime_ns": None,
             "payload": None,
         }
+        self.logger = get_logger("codeinsight.web.service")
 
     def resolve_workspace_root(self, raw_path: str | None, *, required: bool = True) -> str:
         text = str(raw_path or "").strip()
@@ -530,6 +533,10 @@ class WebAgentService:
             execution.last_nonempty_answer,
             last_test_summary,
         )
+        turn_metrics = summarize_agentic_turn(
+            task_results=task_results,
+            tool_trace=combined_tool_trace,
+        )
         self._emit_assistant_text(emit, final_answer)
         self._ensure_not_cancelled(cancel_event)
 
@@ -544,6 +551,7 @@ class WebAgentService:
                 "tasks": execution.board.to_dicts(),
                 "task_results": task_results,
                 "last_test_summary": last_test_summary,
+                "turn_metrics": turn_metrics,
             },
         )
 
@@ -556,6 +564,16 @@ class WebAgentService:
 
         emit({"event": "assistant_final", "data": {"content": final_answer}})
         emit({"event": "session", "data": deepcopy(snapshot)})
+        log_event(
+            self.logger,
+            module="web",
+            action="turn_finish",
+            status="ok",
+            duration_ms=0,
+            session_id=session_id,
+            mode="agentic",
+            **turn_metrics,
+        )
         return {
             "session": snapshot,
             "assistant": final_answer,
@@ -660,6 +678,16 @@ class WebAgentService:
 
         emit({"event": "assistant_final", "data": {"content": answer}})
         emit({"event": "session", "data": deepcopy(snapshot)})
+        log_event(
+            self.logger,
+            module="web",
+            action="turn_finish",
+            status="ok",
+            duration_ms=0,
+            session_id=str(snapshot.get("session_id") or ""),
+            mode=str(metadata_extra.get("mode") or "qa"),
+            tool_step_count=len(tool_results or []),
+        )
 
         return {
             "session": snapshot,

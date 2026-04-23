@@ -113,6 +113,9 @@ def test_eval_payload_is_readable_by_web_service(tmp_path: Path) -> None:
     assert latest["payload"]["summary"]["pass_rate"] == 0.5
     assert latest["payload"]["summary"]["retrieval_case_count"] == 1
     assert latest["payload"]["summary"]["retrieval_hit_rate"] == 0.0
+    assert "retrieval_recall_at_1" in latest["payload"]["summary"]
+    assert "retrieval_recall_at_3" in latest["payload"]["summary"]
+    assert "retrieval_recall_at_5" in latest["payload"]["summary"]
     assert "python_version" in latest["payload"]["environment"]
 
 
@@ -142,4 +145,5 @@ def test_run_eval_retrieval_task_reports_reciprocal_rank(tmp_path: Path, monkeyp
 
     assert result["status"] == "passed"
     assert result["details"]["matched_path"] == "app/web/session_store.py"
+    assert result["details"]["matched_rank"] == 2
     assert result["details"]["reciprocal_rank"] == 0.5

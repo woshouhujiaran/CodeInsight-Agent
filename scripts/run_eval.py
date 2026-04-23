@@ -11,6 +11,7 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app.web.service import WebAgentService
+from app.metrics.quality import summarize_retrieval_cases
 from scripts._common import (
     EVAL_RESULT_PATH,
     OUTPUTS_DIR,
@@ -86,18 +87,7 @@ def build_result_payload(
         (sum(float(task.get("duration_seconds", 0.0)) for task in tasks) * 1000 / total_tasks) if total_tasks else 0.0,
         2,
     )
-    retrieval_tasks = [task for task in tasks if str(task.get("kind") or "") == "retrieval_expectation"]
-    retrieval_hits = sum(1 for task in retrieval_tasks if task.get("status") == "passed")
-    retrieval_hit_rate = round((retrieval_hits / len(retrieval_tasks)) if retrieval_tasks else 0.0, 4)
-    retrieval_mrr = round(
-        (
-            sum(float((task.get("details") or {}).get("reciprocal_rank", 0.0)) for task in retrieval_tasks)
-            / len(retrieval_tasks)
-        )
-        if retrieval_tasks
-        else 0.0,
-        4,
-    )
+    retrieval_metrics = summarize_retrieval_cases(tasks)
     summary = {
         "total_tasks": total_tasks,
         "passed_tasks": passed_tasks,
@@ -109,9 +99,7 @@ def build_result_payload(
         "task_completion_rate": pass_rate,
         "avg_duration_ms": avg_duration_ms,
         "recovery_trigger_rate": 0.0,
-        "retrieval_case_count": len(retrieval_tasks),
-        "retrieval_hit_rate": retrieval_hit_rate,
-        "retrieval_mrr": retrieval_mrr,
+        **retrieval_metrics,
     }
     return {
         "tasks_path": str(tasks_path.resolve()) if tasks_path is not None else None,
@@ -206,11 +194,13 @@ def _run_retrieval_expectation_task(spec: TaskSpec, *, workspace_root: Path) -> 
     hits = retriever.retrieve(query=query, top_k=top_k)
     reciprocal_rank = 0.0
     matched_path = ""
+    matched_rank = 0
     for index, hit in enumerate(hits, start=1):
         path = str(hit.get("file_path") or "").replace("\\", "/").lower()
         if expected in path:
             reciprocal_rank = round(1.0 / index, 4)
             matched_path = str(hit.get("file_path") or "")
+            matched_rank = index
             break
     if reciprocal_rank == 0.0:
         preview = [str(hit.get("file_path") or "") for hit in hits[:top_k]]
@@ -221,6 +211,7 @@ def _run_retrieval_expectation_task(spec: TaskSpec, *, workspace_root: Path) -> 
         "matched_path": matched_path,
         "top_k": top_k,
         "hit_count": len(hits),
+        "matched_rank": matched_rank,
         "reciprocal_rank": reciprocal_rank,
         "index_status": meta.get("status"),
         "index_dir": meta.get("index_dir"),

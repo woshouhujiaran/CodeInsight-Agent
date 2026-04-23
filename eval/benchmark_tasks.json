@@ -1,0 +1,37 @@
+{
+  "tasks": [
+    {
+      "name": "workspace_root_exists",
+      "kind": "path_exists",
+      "path": ".",
+      "path_type": "dir"
+    },
+    {
+      "name": "rag_index_ready",
+      "kind": "build_index",
+      "workspace_root": ".",
+      "force_reindex": false
+    },
+    {
+      "name": "retrieval_session_store",
+      "kind": "retrieval_expectation",
+      "query": "SessionStore save_session session_id snapshot",
+      "expected_path_contains": "app/web/session_store.py",
+      "top_k": 5
+    },
+    {
+      "name": "retrieval_mode_decider",
+      "kind": "retrieval_expectation",
+      "query": "TurnModeDecider infer_with_meta mode agentic workspace_qa",
+      "expected_path_contains": "app/web/chat_components.py",
+      "top_k": 5
+    },
+    {
+      "name": "retrieval_eval_script",
+      "kind": "retrieval_expectation",
+      "query": "build_result_payload retrieval_mrr retrieval_hit_rate",
+      "expected_path_contains": "scripts/run_eval.py",
+      "top_k": 5
+    }
+  ]
+}
