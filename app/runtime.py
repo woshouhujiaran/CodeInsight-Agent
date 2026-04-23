@@ -75,6 +75,13 @@ def _embedding_cache_key_from_env() -> tuple[str, ...]:
             os.getenv("OPENAI_BASE_URL", "").strip(),
             os.getenv("OPENAI_API_KEY", "").strip(),
         )
+    if backend == "ollama":
+        return (
+            backend,
+            os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text").strip(),
+            os.getenv("OLLAMA_EMBEDDING_BASE_URL", os.getenv("OLLAMA_BASE_URL", "")).strip(),
+            os.getenv("OLLAMA_API_KEY", "").strip(),
+        )
     return (backend, os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5").strip())
 
 

@@ -213,12 +213,92 @@ class OpenAICompatibleEmbedding:
         return arr
 
 
+class OllamaEmbedding:
+    """Ollama local embedding API (/api/embed)."""
+
+    backend_id = "ollama"
+
+    def __init__(
+        self,
+        model: str,
+        *,
+        base_url: str | None = None,
+        timeout_seconds: int = 60,
+    ) -> None:
+        self.model = model.strip()
+        raw_base = (
+            base_url
+            or os.getenv("OLLAMA_EMBEDDING_BASE_URL")
+            or os.getenv("OLLAMA_BASE_URL")
+            or "http://127.0.0.1:11434"
+        ).strip().rstrip("/")
+        # Chat endpoint may be configured as .../v1; embedding endpoint is /api/embed.
+        self.base_url = raw_base[:-3] if raw_base.endswith("/v1") else raw_base
+        self.timeout_seconds = timeout_seconds
+        self.api_key = os.getenv("OLLAMA_API_KEY", "").strip()
+        self._dim: int | None = None
+
+    @property
+    def dim(self) -> int:
+        if self._dim is None:
+            probe = self._embed_batch(["dimension probe"])
+            self._dim = int(probe.shape[1]) if probe.size else 0
+        return self._dim
+
+    def embed_texts(self, texts: list[str]) -> np.ndarray:
+        if not texts:
+            return np.zeros((0, self.dim), dtype="float32")
+        arr = self._embed_batch(texts)
+        if self._dim is None and arr.size:
+            self._dim = int(arr.shape[1])
+        return arr
+
+    def embed_query(self, text: str) -> np.ndarray:
+        return self.embed_texts([text])[0]
+
+    def _embed_batch(self, texts: list[str]) -> np.ndarray:
+        url = f"{self.base_url}/api/embed"
+        payload: dict[str, Any] = {"model": self.model, "input": texts}
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        req = request.Request(
+            url=url,
+            data=json.dumps(payload).encode("utf-8"),
+            headers=headers,
+            method="POST",
+        )
+        try:
+            with request.urlopen(req, timeout=self.timeout_seconds) as resp:
+                body = json.loads(resp.read().decode("utf-8"))
+        except error.HTTPError as exc:
+            err_body = exc.read().decode("utf-8", errors="ignore")
+            logger.error("Ollama embeddings HTTP error: %s body=%s", exc.code, err_body)
+            raise
+
+        vectors = body.get("embeddings")
+        if not isinstance(vectors, list):
+            # Backward compatibility: some versions only return a single embedding field.
+            single = body.get("embedding")
+            if isinstance(single, list):
+                vectors = [single]
+            else:
+                raise RuntimeError("Invalid Ollama embedding response: missing embeddings")
+        arr = np.asarray(vectors, dtype="float32")
+        norms = np.linalg.norm(arr, axis=1, keepdims=True)
+        norms = np.where(norms == 0, 1.0, norms)
+        arr = arr / norms
+        return arr
+
+
 def create_embedding_backend() -> EmbeddingBackend:
     """
     Env:
-      EMBEDDING_BACKEND = hash | sentence_transformers | openai  (default: sentence_transformers)
+      EMBEDDING_BACKEND = hash | sentence_transformers | openai | ollama  (default: sentence_transformers)
       EMBEDDING_MODEL   = HF model id for sentence_transformers (default: BAAI/bge-small-en-v1.5)
       OPENAI_API_KEY / OPENAI_BASE_URL / OPENAI_EMBEDDING_MODEL for openai backend
+      OLLAMA_EMBEDDING_MODEL / OLLAMA_EMBEDDING_BASE_URL for ollama backend
     """
     backend = os.getenv("EMBEDDING_BACKEND", "sentence_transformers").strip().lower()
 
@@ -235,6 +315,11 @@ def create_embedding_backend() -> EmbeddingBackend:
         model = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small").strip()
         logger.info("Using OpenAI-compatible embeddings model=%s", model)
         return OpenAICompatibleEmbedding(model=model, api_key=api_key)
+
+    if backend == "ollama":
+        model = os.getenv("OLLAMA_EMBEDDING_MODEL", "nomic-embed-text").strip()
+        logger.info("Using Ollama embeddings model=%s", model)
+        return OllamaEmbedding(model=model)
 
     if backend == "sentence_transformers":
         model = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5").strip()

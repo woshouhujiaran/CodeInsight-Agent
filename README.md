@@ -79,6 +79,14 @@ OPENAI_API_KEY=your_key
 # OPENAI_BASE_URL=https://api.openai.com/v1
 ```
 
+如果使用 Ollama 本地模型：
+```env
+LLM_PROVIDER=ollama
+LLM_MODEL=qwen2.5:7b
+OLLAMA_BASE_URL=http://127.0.0.1:11434/v1
+# OLLAMA_API_KEY=
+```
+
 如果想降低依赖、快速跑通，可以把 embedding 后端改成 hash，但检索质量会下降：
 
 ```env
@@ -237,17 +245,19 @@ pytest -q
 
 ### LLM
 
-1. `LLM_PROVIDER`：`deepseek` 或 `openai`。
+1. `LLM_PROVIDER`：`deepseek`、`openai` 或 `ollama`。
 2. `LLM_MODEL`：模型名。
 3. `DEEPSEEK_API_KEY`：DeepSeek Key。
 4. `OPENAI_API_KEY`：OpenAI 或兼容接口 Key。
 5. `OPENAI_BASE_URL`：自定义兼容接口地址，可选。
+6. `OLLAMA_BASE_URL`：Ollama OpenAI 兼容地址（默认 `http://127.0.0.1:11434/v1`）。
 
 ### Embedding
 
 1. `EMBEDDING_BACKEND=sentence_transformers`：默认推荐，检索质量较好。
 2. `EMBEDDING_BACKEND=openai`：使用 OpenAI 兼容 embeddings 接口。
 3. `EMBEDDING_BACKEND=hash`：无需额外模型，适合快速验证。
+4. `EMBEDDING_BACKEND=ollama`：使用 Ollama `/api/embed` 本地 embedding。
 
 ### Web
 

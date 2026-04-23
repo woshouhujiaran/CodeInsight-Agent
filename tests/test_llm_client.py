@@ -37,6 +37,31 @@ def test_openai_provider_uses_configured_base_url(monkeypatch) -> None:
     assert captured["url"] == "https://example.com/custom/v1/chat/completions"
 
 
+def test_ollama_provider_uses_configured_base_url_without_api_key(monkeypatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_urlopen(req, timeout: int = 60):
+        captured["url"] = req.full_url
+        captured["headers"] = {k.lower(): v for k, v in req.header_items()}
+        captured["timeout"] = timeout
+        return _FakeResponse()
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    monkeypatch.delenv("OLLAMA_API_KEY", raising=False)
+    monkeypatch.setenv("OLLAMA_BASE_URL", "http://127.0.0.1:11434/v1")
+    monkeypatch.setattr(llm_module.request, "urlopen", fake_urlopen)
+
+    client = LLMClient(model="qwen2.5:7b", provider="ollama")
+    answer = client.generate_text(prompt="hello")
+
+    assert answer == "ok"
+    assert captured["url"] == "http://127.0.0.1:11434/v1/chat/completions"
+    headers = captured["headers"]
+    assert isinstance(headers, dict)
+    assert "authorization" not in headers
+
+
 def test_llm_client_retries_retryable_http_errors(monkeypatch) -> None:
     calls = {"count": 0}
 

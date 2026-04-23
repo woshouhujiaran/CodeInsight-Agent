@@ -423,18 +423,24 @@ class LLMClient:
         response_format_json: bool,
     ) -> str | None:
         provider = self.provider.lower().strip()
-        api_key = self._resolve_api_key(provider)
-        if not api_key:
-            self.logger.warning("No API key found for provider=%s, using fallback mode.", provider)
-            return None
-
         if provider == "deepseek":
             url = "https://api.deepseek.com/chat/completions"
+            require_auth = True
         elif provider == "openai":
             base_url = (os.getenv("OPENAI_BASE_URL") or "https://api.openai.com/v1").strip().rstrip("/")
             url = f"{base_url}/chat/completions"
+            require_auth = True
+        elif provider == "ollama":
+            base_url = (os.getenv("OLLAMA_BASE_URL") or "http://127.0.0.1:11434/v1").strip().rstrip("/")
+            url = f"{base_url}/chat/completions"
+            require_auth = False
         else:
             self.logger.warning("Unsupported provider=%s, using fallback mode.", provider)
+            return None
+
+        api_key = self._resolve_api_key(provider)
+        if require_auth and not api_key:
+            self.logger.warning("No API key found for provider=%s, using fallback mode.", provider)
             return None
 
         payload: dict[str, Any] = {
@@ -450,10 +456,7 @@ class LLMClient:
             req = request.Request(
                 url=url,
                 data=json.dumps(payload).encode("utf-8"),
-                headers={
-                    "Content-Type": "application/json",
-                    "Authorization": f"Bearer {api_key}",
-                },
+                headers=self._request_headers(api_key),
                 method="POST",
             )
             try:
@@ -495,4 +498,13 @@ class LLMClient:
             return os.getenv("DEEPSEEK_API_KEY", "").strip()
         if provider == "openai":
             return os.getenv("OPENAI_API_KEY", "").strip()
+        if provider == "ollama":
+            return os.getenv("OLLAMA_API_KEY", "").strip()
         return ""
+
+    @staticmethod
+    def _request_headers(api_key: str) -> dict[str, str]:
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        return headers
