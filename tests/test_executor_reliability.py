@@ -60,6 +60,7 @@ def test_executor_retries_transient_then_succeeds() -> None:
     assert results[0]["error_type"] == ""
     assert results[0]["timed_out"] is True
     assert results[0]["duration_ms"] >= 300
+    assert results[0]["input_args"] == {"query": "q"}
 
 
 def test_executor_stops_retry_on_permanent_error() -> None:

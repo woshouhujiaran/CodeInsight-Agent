@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
+from copy import deepcopy
 import time
 from typing import Any
 from uuid import uuid4
@@ -9,7 +10,7 @@ from app.agent.plan_schema import topological_sort_steps
 from app.agent.tool_registry import ToolRegistry
 from app.agent.tool_specs import validate_agentic_tool_call
 from app.tools.base_tool import ensure_tool_result, make_tool_result, tool_result_to_legacy_output
-from app.utils.logger import get_logger
+from app.utils.logger import get_logger, log_event
 
 
 class Executor:
@@ -88,6 +89,7 @@ class Executor:
                         "duration_ms": int((time.perf_counter() - step_started) * 1000),
                         "timed_out": False,
                         "deps": [],
+                        "input_args": deepcopy(args),
                     }
                 )
                 continue
@@ -145,6 +147,20 @@ class Executor:
                 max_retries,
                 timeout_seconds if timeout_seconds is not None else 0.0,
             )
+            log_event(
+                self.logger,
+                module="executor",
+                action="tool_step_start",
+                status="ok",
+                step=idx,
+                total_steps=total_steps,
+                step_id=step_id,
+                tool=str(tool_name or ""),
+                deps=deps,
+                max_retries=max_retries,
+                timeout_seconds=float(timeout_seconds or 0.0),
+                input_args=deepcopy(args),
+            )
 
             tool = self.registry.get_tool(tool_name)
             if tool is None:
@@ -168,7 +184,23 @@ class Executor:
                         "duration_ms": int((time.perf_counter() - step_started) * 1000),
                         "timed_out": False,
                         "deps": deps,
+                        "input_args": deepcopy(args),
                     }
+                )
+                log_event(
+                    self.logger,
+                    module="executor",
+                    action="tool_step_finish",
+                    status="error",
+                    duration_ms=int((time.perf_counter() - step_started) * 1000),
+                    step=idx,
+                    total_steps=total_steps,
+                    step_id=step_id,
+                    tool=str(tool_name or ""),
+                    attempts=0,
+                    timed_out=False,
+                    error_type="permanent",
+                    output_preview=f"Tool `{tool_name}` not found.",
                 )
                 continue
 
@@ -270,6 +302,7 @@ class Executor:
                     "duration_ms": int((time.perf_counter() - step_started) * 1000),
                     "timed_out": timed_out,
                     "deps": deps,
+                    "input_args": deepcopy(args),
                 }
             )
             self.logger.info(
@@ -281,6 +314,21 @@ class Executor:
                 attempts_used,
                 error_type,
                 timed_out,
+            )
+            log_event(
+                self.logger,
+                module="executor",
+                action="tool_step_finish",
+                status=final_status,
+                duration_ms=int((time.perf_counter() - step_started) * 1000),
+                step=idx,
+                total_steps=total_steps,
+                step_id=step_id,
+                tool=str(tool_name or ""),
+                attempts=attempts_used,
+                timed_out=timed_out,
+                error_type=error_type,
+                output_preview=self._preview(last_output, limit=300),
             )
 
         self.logger.info("Executor finished. Generated %d result item(s).", len(results))
@@ -330,3 +378,9 @@ class Executor:
         if any(token in text for token in transient_tokens):
             return "transient"
         return "permanent"
+
+    def _preview(self, value: Any, *, limit: int = 300) -> str:
+        text = str(value or "")
+        if len(text) <= limit:
+            return text
+        return text[: max(0, limit - 3)] + "..."

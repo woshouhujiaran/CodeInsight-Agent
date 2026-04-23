@@ -49,3 +49,8 @@ def test_code_agent_run_smoke() -> None:
     assert len(messages) == 2
     assert messages[0]["role"] == "user"
     assert messages[1]["role"] == "assistant"
+    turn_meta = memory.get_turn_metadata()
+    assert turn_meta[-1]["mode"] == "single"
+    assert turn_meta[-1]["reasoning_steps"]
+    assert turn_meta[-1]["repro_manifest"]["mode"] == "single"
+    assert turn_meta[-1]["tool_results"][0]["input_args"] is not None

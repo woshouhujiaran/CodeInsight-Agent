@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import json
 from pathlib import Path
@@ -85,16 +85,22 @@ def main() -> None:
     )
 
     result = agent.run_minimal_agent_loop(
-        "列出当前项目根目录的主要文件并给我一句总结",
+        "List top-level workspace files and summarize them in one sentence.",
         max_tasks=2,
         max_turns_per_task=4,
         workspace_root=str(root),
     )
+    turn_metadata = memory.get_turn_metadata()
+    latest_turn = turn_metadata[-1] if turn_metadata else {}
 
     payload = {
         "answer": result.answer,
         "tool_steps": len(result.tool_trace),
         "tools": [row.get("tool") for row in result.tool_trace],
+        "trace_id": result.trace_id,
+        "reasoning_steps_count": len(latest_turn.get("reasoning_steps") or []),
+        "repro_manifest": latest_turn.get("repro_manifest") or {},
+        "first_input_args": (result.tool_trace[0].get("input_args") if result.tool_trace else {}),
         "first_output_preview": str(result.tool_trace[0].get("output", ""))[:200] if result.tool_trace else "",
     }
     print(json.dumps(payload, ensure_ascii=False, indent=2))

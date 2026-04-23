@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from typing import Any
 from unittest.mock import MagicMock
@@ -14,7 +14,7 @@ from app.tools.base_tool import BaseTool, make_tool_result
 
 class EchoTool(BaseTool):
     name = "echo_tool"
-    description = "回显参数，用于测试。"
+    description = "Echo arguments for tests."
 
     def run(self, input: dict[str, Any] | str) -> dict[str, Any]:
         return make_tool_result(status="ok", data=input, error="", meta={})
@@ -26,7 +26,7 @@ def test_run_agentic_two_tool_rounds_then_final() -> None:
         side_effect=[
             {"type": "tool_calls", "calls": [{"name": "echo_tool", "arguments": {"round": 1}}]},
             {"type": "tool_calls", "calls": [{"name": "echo_tool", "arguments": {"round": 2}}]},
-            {"type": "final", "content": "两轮工具已完成。"},
+            {"type": "final", "content": "two rounds complete"},
         ]
     )
 
@@ -37,10 +37,10 @@ def test_run_agentic_two_tool_rounds_then_final() -> None:
     memory = ConversationMemory()
     agent = CodeAgent(planner=planner, executor=executor, llm=llm, memory=memory, workspace_root="/tmp/demo")
 
-    result = agent.run_agentic("请分两轮调用 echo", max_turns=8)
+    result = agent.run_agentic("run two echo rounds", max_turns=8)
 
     assert isinstance(result, AgenticTurnResult)
-    assert result.answer == "两轮工具已完成。"
+    assert result.answer == "two rounds complete"
     assert len(result.tool_trace) == 2
     assert all(r.get("tool") == "echo_tool" for r in result.tool_trace)
     assert llm.generate_agentic_json_turn.call_count == 3
@@ -48,7 +48,14 @@ def test_run_agentic_two_tool_rounds_then_final() -> None:
     msgs = memory.get_messages()
     assert msgs[-2]["role"] == "user"
     assert msgs[-1]["role"] == "assistant"
-    assert "两轮工具已完成" in msgs[-1]["content"]
+    assert "two rounds complete" in msgs[-1]["content"]
+
+    turn_meta = memory.get_turn_metadata()
+    assert turn_meta[-1]["mode"] == "agentic"
+    assert len(turn_meta[-1]["reasoning_steps"]) == 3
+    assert turn_meta[-1]["reasoning_steps"][0]["decision_type"] == "tool_calls"
+    assert turn_meta[-1]["repro_manifest"]["mode"] == "agentic"
+    assert turn_meta[-1]["tool_results"][0]["input_args"] == {"round": 1}
 
 
 def test_parse_agentic_turn_accepts_fenced_json() -> None:
@@ -74,7 +81,7 @@ def test_run_agentic_synthesizes_answer_when_max_turns_reached() -> None:
             {"type": "tool_calls", "calls": [{"name": "echo_tool", "arguments": {"round": 2}}]},
         ]
     )
-    llm.generate_answer = MagicMock(return_value="基于现有工具结果，功能已存在。")
+    llm.generate_answer = MagicMock(return_value="based on tool results")
 
     registry = ToolRegistry()
     registry.register(EchoTool())
@@ -82,8 +89,8 @@ def test_run_agentic_synthesizes_answer_when_max_turns_reached() -> None:
     planner = Planner(llm=llm)
     agent = CodeAgent(planner=planner, executor=executor, llm=llm, workspace_root="/tmp/demo")
 
-    result = agent.run_agentic("确认 echo 是否已经存在", max_turns=2)
+    result = agent.run_agentic("confirm echo exists", max_turns=2)
 
-    assert result.answer == "基于现有工具结果，功能已存在。"
+    assert result.answer == "based on tool results"
     assert len(result.tool_trace) == 2
     llm.generate_answer.assert_called_once()

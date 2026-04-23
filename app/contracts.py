@@ -122,6 +122,7 @@ class ToolTraceEntryModel(_ExtraAllowModel):
     timed_out: bool = False
     deps: list[str] = Field(default_factory=list)
     replan_round: int | None = None
+    input_args: dict[str, Any] | None = None
 
 
 class TaskResultModel(_ExtraAllowModel):
@@ -147,6 +148,8 @@ class TurnMetadataModel(_ExtraAllowModel):
     tasks: list[dict[str, Any]] = Field(default_factory=list)
     task_results: list[TaskResultModel] = Field(default_factory=list)
     last_test_summary: TestSummaryModel | None = None
+    reasoning_steps: list[dict[str, Any]] = Field(default_factory=list)
+    repro_manifest: dict[str, Any] = Field(default_factory=dict)
 
 
 class SessionSnapshotModel(_ExtraAllowModel):

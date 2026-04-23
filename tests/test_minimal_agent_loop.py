@@ -75,4 +75,6 @@ def test_run_minimal_agent_loop_plans_then_executes_tools() -> None:
     turn_meta = memory.get_turn_metadata()
     assert turn_meta
     assert turn_meta[-1].get("minimal_loop") is True
+    assert turn_meta[-1].get("mode") == "minimal_loop"
+    assert turn_meta[-1]["repro_manifest"]["mode"] == "minimal_loop"
     assert len(turn_meta[-1].get("plan") or []) == 2

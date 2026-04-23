@@ -143,11 +143,29 @@ class CodeAgent:
 
         self.memory.add_user_message(user_query)
         self.memory.add_assistant_message(final_answer)
+        reasoning_steps = self._build_reasoning_steps_from_plan(
+            plan=combined_plan,
+            recovery_applied=recovery_applied,
+            recovery_reason=recovery_reason,
+            recovery_strategy=recovery_strategy,
+        )
         self.memory.add_turn_metadata(
             plan=combined_plan,
             tool_results=combined_results,
             recovery_applied=recovery_applied,
             trace_id=trace_id,
+            extra={
+                "mode": "single",
+                "reasoning_steps": reasoning_steps,
+                "repro_manifest": self._build_repro_manifest(
+                    mode="single",
+                    user_query=user_query,
+                    trace_id=trace_id,
+                    workspace_root=self._workspace_root,
+                    plan=combined_plan,
+                    tool_results=combined_results,
+                ),
+            },
         )
         self.logger.info("Memory updated. Total messages: %d", len(self.memory.get_messages()))
         turn_duration_ms = int((time.perf_counter() - turn_started) * 1000)
@@ -244,15 +262,23 @@ class CodeAgent:
         transcript.append({"role": "user", "content": user_query})
 
         tool_trace: list[dict[str, Any]] = []
+        reasoning_steps: list[dict[str, Any]] = []
         answer = ""
         max_turns = max(1, int(max_turns))
 
-        for _ in range(max_turns):
+        for turn_idx in range(1, max_turns + 1):
             if cancel_event is not None and cancel_event.is_set():
                 answer = answer or "请求已取消。"
                 break
             decision = self.llm.generate_agentic_json_turn(transcript, system_prompt=system_prompt)
             transcript.append({"role": "assistant", "content": json.dumps(decision, ensure_ascii=False)})
+            reasoning_steps.append(
+                {
+                    "turn": turn_idx,
+                    "decision_type": str(decision.get("type") or ""),
+                    "call_count": len(decision.get("calls") or []) if isinstance(decision.get("calls"), list) else 0,
+                }
+            )
 
             if decision.get("type") == "final":
                 answer = str(decision.get("content", ""))
@@ -290,7 +316,20 @@ class CodeAgent:
                 tool_results=tool_trace,
                 recovery_applied=False,
                 trace_id=trace_id,
-                extra={"agentic": True},
+                extra={
+                    "agentic": True,
+                    "mode": "agentic",
+                    "reasoning_steps": reasoning_steps,
+                    "repro_manifest": self._build_repro_manifest(
+                        mode="agentic",
+                        user_query=user_query,
+                        trace_id=trace_id,
+                        workspace_root=root,
+                        plan=[],
+                        tool_results=tool_trace,
+                        max_turns=max_turns,
+                    ),
+                },
             )
 
         turn_duration_ms = int((time.perf_counter() - turn_started) * 1000)
@@ -393,7 +432,21 @@ class CodeAgent:
                 tool_results=combined_trace,
                 recovery_applied=False,
                 trace_id=trace_id,
-                extra={"agentic": True, "minimal_loop": True},
+                extra={
+                    "agentic": True,
+                    "minimal_loop": True,
+                    "mode": "minimal_loop",
+                    "reasoning_steps": self._build_reasoning_steps_from_tasks(planned_tasks),
+                    "repro_manifest": self._build_repro_manifest(
+                        mode="minimal_loop",
+                        user_query=user_query,
+                        trace_id=trace_id,
+                        workspace_root=root,
+                        plan=planned_tasks,
+                        tool_results=combined_trace,
+                        max_turns=max_turns_per_task,
+                    ),
+                },
             )
 
         transcript.append({"role": "assistant", "content": final_answer})
@@ -549,6 +602,73 @@ class CodeAgent:
             x["replan_round"] = 2
             merged.append(x)
         return merged
+
+    def _build_reasoning_steps_from_plan(
+        self,
+        *,
+        plan: list[dict[str, Any]],
+        recovery_applied: bool,
+        recovery_reason: str,
+        recovery_strategy: str,
+    ) -> list[dict[str, Any]]:
+        steps: list[dict[str, Any]] = []
+        for idx, row in enumerate(plan, start=1):
+            steps.append(
+                {
+                    "step": idx,
+                    "type": "plan_step",
+                    "id": str(row.get("id") or ""),
+                    "tool": str(row.get("tool") or ""),
+                    "deps": list(row.get("deps") or []),
+                    "success_criteria": str(row.get("success_criteria") or ""),
+                }
+            )
+        if recovery_applied:
+            steps.append(
+                {
+                    "step": len(steps) + 1,
+                    "type": "recovery",
+                    "reason": recovery_reason,
+                    "strategy": recovery_strategy,
+                }
+            )
+        return steps
+
+    def _build_reasoning_steps_from_tasks(self, tasks: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        steps: list[dict[str, Any]] = []
+        for idx, row in enumerate(tasks, start=1):
+            steps.append(
+                {
+                    "step": idx,
+                    "type": "task",
+                    "id": str(row.get("id") or ""),
+                    "title": str(row.get("title") or ""),
+                    "depends_on": list(row.get("depends_on") or []),
+                    "acceptance": str(row.get("acceptance") or ""),
+                }
+            )
+        return steps
+
+    def _build_repro_manifest(
+        self,
+        *,
+        mode: str,
+        user_query: str,
+        trace_id: str,
+        workspace_root: str | None,
+        plan: list[dict[str, Any]],
+        tool_results: list[dict[str, Any]],
+        max_turns: int | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "trace_id": trace_id,
+            "mode": mode,
+            "workspace_root": str(workspace_root or ""),
+            "user_query": user_query,
+            "plan_steps": [str(item.get("id") or "") for item in plan if isinstance(item, dict)],
+            "tool_steps": [str(item.get("step_id") or "") for item in tool_results if isinstance(item, dict)],
+            "max_turns": int(max_turns or 0),
+        }
 
     def _build_context(
         self,
