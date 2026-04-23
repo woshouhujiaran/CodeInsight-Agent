@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -9,14 +9,14 @@ from app.utils.logger import get_logger
 
 
 class CodeIngestor:
-    """Ingest code files: read -> chunk(500) -> embedding -> FAISS."""
+    """Ingest code files: read -> structured chunk -> embedding -> FAISS."""
 
     def __init__(
         self,
         store: FaissVectorStore,
         chunk_size: int = 500,
         chunk_overlap: int = 50,
-        chunk_strategy: str = "fixed",
+        chunk_strategy: str = "structured_v3",
         batch_size: int = 256,
         excluded_dirs: tuple[str, ...] = (
             ".git",
@@ -74,6 +74,12 @@ class CodeIngestor:
                             file_path=chunk.file_path,
                             content=chunk.content,
                             chunk_id=chunk.chunk_id,
+                            symbol_name=chunk.symbol_name,
+                            start_line=chunk.start_line,
+                            end_line=chunk.end_line,
+                            chunk_kind=chunk.chunk_kind,
+                            content_hash=chunk.content_hash,
+                            chunk_version=chunk.chunk_version,
                         )
                     )
 
@@ -118,6 +124,12 @@ class CodeIngestor:
                         file_path=chunk.file_path,
                         content=chunk.content,
                         chunk_id=chunk.chunk_id,
+                        symbol_name=chunk.symbol_name,
+                        start_line=chunk.start_line,
+                        end_line=chunk.end_line,
+                        chunk_kind=chunk.chunk_kind,
+                        content_hash=chunk.content_hash,
+                        chunk_version=chunk.chunk_version,
                     )
                 )
             if len(docs) >= self.batch_size:

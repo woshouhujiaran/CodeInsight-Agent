@@ -73,3 +73,15 @@ def test_retriever_rerank_uses_lexical_overlap_and_path_hints() -> None:
     assert hits[0]["file_path"] == "app/web/session_store.py"
     assert "lexical_overlap" in str(hits[0]["why_matched"])
     assert float(hits[0]["lexical_score"]) > 0
+
+
+def test_retriever_returns_structured_metadata_fields() -> None:
+    retriever = CodeRetriever(store=DummyStore())  # type: ignore[arg-type]
+    hits = retriever.retrieve("login", top_k=1)
+    assert hits
+    row = hits[0]
+    assert "symbol_name" in row
+    assert "start_line" in row
+    assert "end_line" in row
+    assert "chunk_kind" in row
+    assert row.get("chunk_version") == "v3"

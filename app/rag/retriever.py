@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import math
 import re
@@ -15,17 +15,27 @@ class RetrievalHit:
     file_path: str
     content: str
     chunk_id: str
+    symbol_name: str | None
+    start_line: int | None
+    end_line: int | None
+    chunk_kind: str
+    chunk_version: str
     dense_score: float
     lexical_score: float
     rerank_score: float
     why_matched: str
     source_backend: str
 
-    def to_dict(self) -> dict[str, str | float]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "file_path": self.file_path,
             "content": self.content,
             "chunk_id": self.chunk_id,
+            "symbol_name": self.symbol_name,
+            "start_line": self.start_line,
+            "end_line": self.end_line,
+            "chunk_kind": self.chunk_kind,
+            "chunk_version": self.chunk_version,
             "dense_score": float(self.dense_score),
             "lexical_score": float(self.lexical_score),
             "rerank_score": float(self.rerank_score),
@@ -49,7 +59,7 @@ class _BM25Index:
         self.doc_freq = {}
         self.doc_lens = []
         for doc in docs:
-            tokens = self._tokenize(f"{doc['file_path']} {doc['content']}")
+            tokens = self._tokenize(f"{doc['file_path']} {doc['symbol_name']} {doc['content']}")
             tf: dict[str, int] = {}
             for token in tokens:
                 tf[token] = tf.get(token, 0) + 1
@@ -94,15 +104,15 @@ class _BM25Index:
 
 
 class CodeRetriever:
-    """Retriever API: input query, return top-k code snippets."""
+    """Retriever API: input query, return top-k structured code snippets."""
 
     def __init__(
         self,
         store: FaissVectorStore,
         logger_name: str = "codeinsight.rag.retriever",
         *,
-        dense_weight: float = 0.7,
-        lexical_weight: float = 0.3,
+        dense_weight: float = 0.65,
+        lexical_weight: float = 0.35,
     ) -> None:
         self.store = store
         self.logger = get_logger(logger_name)
@@ -111,14 +121,14 @@ class CodeRetriever:
         self._bm25 = _BM25Index()
         self._bm25_doc_count = -1
 
-    def retrieve(self, query: str, top_k: int = 5) -> list[dict[str, str | float]]:
+    def retrieve(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         started = time.perf_counter()
         self.logger.info("Retrieving top-%d snippets for query.", top_k)
         rewritten_queries = self._rewrite_queries(query)
-        per_query_k = max(top_k, min(8, top_k * 2))
+        per_query_k = max(top_k, min(10, top_k * 2))
 
         self._ensure_lexical_index()
-        raw_hits: list[dict[str, str | float]] = []
+        raw_hits: list[dict[str, Any]] = []
         for q in rewritten_queries:
             raw_hits.extend(self.store.search(query=q, top_k=per_query_k))
             raw_hits.extend(self._lexical_search(query=q, top_k=per_query_k))
@@ -149,18 +159,23 @@ class CodeRetriever:
                 "file_path": str(doc.file_path),
                 "content": str(doc.content),
                 "chunk_id": str(doc.chunk_id),
+                "symbol_name": str(doc.symbol_name or ""),
+                "start_line": str(doc.start_line or ""),
+                "end_line": str(doc.end_line or ""),
+                "chunk_kind": str(doc.chunk_kind),
+                "chunk_version": str(doc.chunk_version),
             }
             for doc in docs
         ]
         self._bm25.build(payload)
         self._bm25_doc_count = len(docs)
 
-    def _lexical_search(self, query: str, top_k: int) -> list[dict[str, str | float]]:
+    def _lexical_search(self, query: str, top_k: int) -> list[dict[str, Any]]:
         rows = self._bm25.search(query=query, top_k=top_k)
         if not rows:
             return []
         max_score = max(score for score, _ in rows) or 1.0
-        hits: list[dict[str, str | float]] = []
+        hits: list[dict[str, Any]] = []
         for score, doc in rows:
             lex_score = float(score / max_score)
             hits.append(
@@ -168,6 +183,11 @@ class CodeRetriever:
                     "file_path": doc["file_path"],
                     "content": doc["content"],
                     "chunk_id": doc["chunk_id"],
+                    "symbol_name": doc.get("symbol_name") or None,
+                    "start_line": int(doc["start_line"]) if str(doc.get("start_line") or "").isdigit() else None,
+                    "end_line": int(doc["end_line"]) if str(doc.get("end_line") or "").isdigit() else None,
+                    "chunk_kind": doc.get("chunk_kind") or "text",
+                    "chunk_version": doc.get("chunk_version") or "v3",
                     "dense_score": 0.0,
                     "lexical_score": lex_score,
                     "rerank_score": lex_score,
@@ -185,8 +205,8 @@ class CodeRetriever:
         terms = self._query_terms(base)
         expanded = [base]
         if terms:
-            expanded.append(" ".join(terms[:6]))
-            expanded.append(" ".join(dict.fromkeys(term.replace("_", " ") for term in terms[:4])))
+            expanded.append(" ".join(terms[:8]))
+            expanded.append(" ".join(dict.fromkeys(term.replace("_", " ") for term in terms[:5])))
         out: list[str] = []
         for item in expanded:
             s = item.strip()
@@ -194,36 +214,36 @@ class CodeRetriever:
                 out.append(s)
         return out
 
-    def _dedupe_hits(self, hits: list[dict[str, str | float]]) -> list[dict[str, str | float]]:
-        dedup: dict[tuple[str, str], dict[str, str | float]] = {}
+    def _dedupe_hits(self, hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        dedup: dict[str, dict[str, Any]] = {}
         for hit in hits:
-            if "dense_score" not in hit:
-                hit = dict(hit)
-                hit["dense_score"] = float(hit.get("score", 0.0))
-            file_path = str(hit.get("file_path", ""))
-            chunk_id = str(hit.get("chunk_id", ""))
-            key = (file_path, chunk_id)
-            prev = dedup.get(key)
+            row = dict(hit)
+            if "dense_score" not in row:
+                row["dense_score"] = float(row.get("score", 0.0))
+            chunk_id = str(row.get("chunk_id", "")).strip()
+            if not chunk_id:
+                chunk_id = f"{row.get('file_path', '')}::anon"
+            prev = dedup.get(chunk_id)
             if prev is None:
-                dedup[key] = dict(hit)
+                dedup[chunk_id] = row
                 continue
             merged = dict(prev)
-            merged["dense_score"] = max(float(prev.get("dense_score", 0.0)), float(hit.get("dense_score", 0.0)))
-            merged["lexical_score"] = max(
-                float(prev.get("lexical_score", 0.0)), float(hit.get("lexical_score", 0.0))
-            )
+            merged["dense_score"] = max(float(prev.get("dense_score", 0.0)), float(row.get("dense_score", 0.0)))
+            merged["lexical_score"] = max(float(prev.get("lexical_score", 0.0)), float(row.get("lexical_score", 0.0)))
             merged["source_backend"] = "hybrid"
-            dedup[key] = merged
+            dedup[chunk_id] = merged
         return list(dedup.values())
 
-    def _rerank_hits(self, *, query: str, hits: list[dict[str, str | float]]) -> list[dict[str, str | float]]:
+    def _rerank_hits(self, *, query: str, hits: list[dict[str, Any]]) -> list[dict[str, Any]]:
         q_tokens = self._query_terms(query)
-        scored: list[tuple[float, dict[str, str | float]]] = []
+        scored: list[tuple[float, dict[str, Any]]] = []
         for item in hits:
             file_path = str(item.get("file_path", ""))
             file_low = file_path.lower()
             content = str(item.get("content", ""))
             content_low = content.lower()
+            symbol = str(item.get("symbol_name") or "")
+            symbol_low = symbol.lower()
             dense_score = float(item.get("dense_score", 0.0))
             lexical_score = float(item.get("lexical_score", 0.0))
             reasons: list[str] = []
@@ -231,18 +251,18 @@ class CodeRetriever:
 
             filename_hit = any(token in file_low for token in q_tokens)
             if filename_hit:
-                boost += 0.08
+                boost += 0.06
                 reasons.append("filename_token_match")
-
-            symbol_hit = any(re.search(rf"\b{re.escape(token)}\b", content, flags=re.IGNORECASE) for token in q_tokens)
-            if symbol_hit:
-                boost += 0.05
-                reasons.append("symbol_match")
 
             lexical_overlap = self._lexical_overlap_score(q_tokens, file_low=file_low, content_low=content_low)
             if lexical_overlap > 0:
-                boost += min(0.12, lexical_overlap * 0.08)
+                boost += min(0.10, lexical_overlap * 0.07)
                 reasons.append("lexical_overlap")
+
+            symbol_overlap = self._symbol_overlap_score(q_tokens, symbol_low=symbol_low)
+            if symbol_overlap > 0:
+                boost += min(0.16, symbol_overlap * 0.12)
+                reasons.append("symbol_match")
 
             path_hint = self._path_hint_score(q_tokens, file_low=file_low)
             if path_hint > 0:
@@ -258,19 +278,23 @@ class CodeRetriever:
 
             weighted = self.dense_weight * dense_score + self.lexical_weight * lexical_score
             final_score = weighted + boost
+            effective_lexical_score = max(lexical_score, lexical_overlap)
             hit = RetrievalHit(
                 file_path=file_path,
                 content=content,
                 chunk_id=str(item.get("chunk_id", "")),
+                symbol_name=(str(item.get("symbol_name")) if item.get("symbol_name") is not None else None),
+                start_line=(int(item.get("start_line")) if item.get("start_line") is not None else None),
+                end_line=(int(item.get("end_line")) if item.get("end_line") is not None else None),
+                chunk_kind=str(item.get("chunk_kind") or "text"),
+                chunk_version=str(item.get("chunk_version") or "v3"),
                 dense_score=dense_score,
-                lexical_score=round(float(lexical_score), 4),
+                lexical_score=round(float(effective_lexical_score), 4),
                 rerank_score=round(float(final_score), 6),
                 why_matched=",".join(dict.fromkeys(reasons)),
                 source_backend=str(item.get("source_backend") or "hybrid"),
             )
-            enriched = hit.to_dict()
-            enriched["lexical_score"] = round(float(lexical_overlap), 4)
-            scored.append((final_score, enriched))
+            scored.append((final_score, hit.to_dict()))
 
         scored.sort(key=lambda x: x[0], reverse=True)
         return [item for _, item in scored]
@@ -291,6 +315,12 @@ class CodeRetriever:
         if not query_terms:
             return 0.0
         matched = sum(1 for term in query_terms if term in file_low or term in content_low)
+        return matched / len(query_terms)
+
+    def _symbol_overlap_score(self, query_terms: list[str], *, symbol_low: str) -> float:
+        if not query_terms or not symbol_low:
+            return 0.0
+        matched = sum(1 for term in query_terms if term in symbol_low)
         return matched / len(query_terms)
 
     def _path_hint_score(self, query_terms: list[str], *, file_low: str) -> float:

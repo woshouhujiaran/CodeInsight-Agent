@@ -42,6 +42,10 @@ def test_faiss_save_load_search(tmp_path: Path) -> None:
     hits = loaded.search("add two numbers", top_k=2)
     assert hits, "expected at least one retrieval hit"
     assert any("math.py" in h["file_path"] for h in hits)
+    assert "symbol_name" in hits[0]
+    assert "start_line" in hits[0]
+    assert "end_line" in hits[0]
+    assert hits[0]["chunk_version"] == "v3"
 
 
 def test_load_or_build_skips_reingest_when_snapshot_matches(tmp_path: Path) -> None:
@@ -63,6 +67,8 @@ def test_load_or_build_skips_reingest_when_snapshot_matches(tmp_path: Path) -> N
     m = read_index_meta(index_dir)
     assert m is not None
     assert m["backend_id"] == "hash"
+    assert m["version"] == 3
+    assert m["chunk_strategy"] == "structured_v3"
 
 
 def test_force_reindex_rebuilds(tmp_path: Path) -> None:
@@ -82,6 +88,23 @@ def test_force_reindex_rebuilds(tmp_path: Path) -> None:
     load_or_build_vector_store(str(code_dir), index_dir, emb, force_reindex=True)
     m = read_index_meta(index_dir)
     assert m is not None
+
+
+def test_load_or_build_rejects_legacy_meta_without_force(tmp_path: Path) -> None:
+    code_dir = tmp_path / "cb5"
+    code_dir.mkdir()
+    (code_dir / "a.py").write_text("x = 1\n", encoding="utf-8")
+    index_dir = tmp_path / "idx5"
+    index_dir.mkdir(parents=True, exist_ok=True)
+    (index_dir / "meta.json").write_text('{"version": 2}', encoding="utf-8")
+
+    emb = HashEmbedding(dim=384)
+    try:
+        load_or_build_vector_store(str(code_dir), index_dir, emb, force_reindex=False)
+    except RuntimeError as exc:
+        assert "legacy RAG index detected" in str(exc)
+    else:
+        raise AssertionError("expected RuntimeError for legacy index")
 
 
 def test_load_or_build_excludes_generated_output_directories(tmp_path: Path) -> None:

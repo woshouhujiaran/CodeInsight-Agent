@@ -1,5 +1,6 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
+import hashlib
 import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -15,12 +16,21 @@ try:
 except Exception:  # noqa: BLE001
     faiss = None
 
+INDEX_META_VERSION = 3
+CHUNK_VERSION = "v3"
+
 
 @dataclass
 class CodeDocument:
     file_path: str
     content: str
     chunk_id: str
+    symbol_name: str | None
+    start_line: int | None
+    end_line: int | None
+    chunk_kind: str
+    content_hash: str
+    chunk_version: str = CHUNK_VERSION
 
 
 @runtime_checkable
@@ -29,16 +39,33 @@ class VectorStore(Protocol):
 
     def upsert_documents(self, documents: Iterable[CodeDocument]) -> int: ...
 
-    def search(self, query: str, top_k: int = 5) -> list[dict[str, str | float]]: ...
+    def search(self, query: str, top_k: int = 5) -> list[dict[str, Any]]: ...
 
     def save(self, index_dir: Path) -> None: ...
 
     def metadata(self) -> dict[str, Any]: ...
 
 
+def _stable_chunk_id(doc: CodeDocument) -> str:
+    symbol = (doc.symbol_name or "_").strip() or "_"
+    line_range = f"{int(doc.start_line or 0)}-{int(doc.end_line or 0)}"
+    content_hash = doc.content_hash or hashlib.sha1(doc.content.encode("utf-8")).hexdigest()
+    payload = "|".join(
+        [
+            doc.file_path,
+            symbol,
+            line_range,
+            doc.chunk_kind,
+            content_hash,
+            doc.chunk_version,
+        ]
+    )
+    return f"{Path(doc.file_path).as_posix()}::v3::{hashlib.sha1(payload.encode('utf-8')).hexdigest()[:20]}"
+
+
 class FaissVectorStore:
     """
-    FAISS vector store for code snippets.
+    FAISS vector store for structured code chunks.
 
     Index strategy:
     - `auto`: choose IndexFlatIP for small corpora, IVF+PQ for larger corpora.
@@ -74,7 +101,6 @@ class FaissVectorStore:
         self._index_type = "flat"
 
     def add_documents(self, documents: Iterable[CodeDocument]) -> int:
-        """Backward-compatible append-only API."""
         docs = list(documents)
         if not docs:
             return 0
@@ -88,19 +114,30 @@ class FaissVectorStore:
         if not docs:
             return 0
         for doc in docs:
-            chunk_id = str(doc.chunk_id or "").strip()
-            if not chunk_id:
-                # keep deterministic key when caller did not provide one
-                chunk_id = f"{doc.file_path}::auto_{abs(hash(doc.content))}"
-            self._doc_by_chunk_id[chunk_id] = CodeDocument(
-                file_path=str(doc.file_path),
-                content=str(doc.content),
-                chunk_id=chunk_id,
-            )
+            normalized = self._normalize_doc(doc)
+            self._doc_by_chunk_id[normalized.chunk_id] = normalized
         self.documents = list(self._doc_by_chunk_id.values())
         self._rebuild_index()
         self.logger.info("Upserted %d documents. total=%d", len(docs), len(self.documents))
         return len(docs)
+
+    def _normalize_doc(self, doc: CodeDocument) -> CodeDocument:
+        content = str(doc.content)
+        content_hash = str(doc.content_hash or "").strip() or hashlib.sha1(content.encode("utf-8")).hexdigest()
+        normalized = CodeDocument(
+            file_path=str(doc.file_path),
+            content=content,
+            chunk_id=str(doc.chunk_id or "").strip(),
+            symbol_name=str(doc.symbol_name) if doc.symbol_name is not None else None,
+            start_line=int(doc.start_line) if doc.start_line is not None else None,
+            end_line=int(doc.end_line) if doc.end_line is not None else None,
+            chunk_kind=str(doc.chunk_kind or "text").strip() or "text",
+            content_hash=content_hash,
+            chunk_version=CHUNK_VERSION,
+        )
+        if not normalized.chunk_id:
+            normalized.chunk_id = _stable_chunk_id(normalized)
+        return normalized
 
     def delete_by_file_paths(self, file_paths: Iterable[str]) -> int:
         targets = {str(p) for p in file_paths if str(p).strip()}
@@ -120,7 +157,7 @@ class FaissVectorStore:
         self.logger.info("Removed %d documents for %d files.", removed, len(targets))
         return removed
 
-    def search(self, query: str, top_k: int = 5) -> list[dict[str, str | float]]:
+    def search(self, query: str, top_k: int = 5) -> list[dict[str, Any]]:
         if not query.strip() or self.index.ntotal == 0:
             return []
 
@@ -129,7 +166,7 @@ class FaissVectorStore:
         self._apply_search_params()
         scores, indices = self.index.search(q, min(top_k, self.index.ntotal))
 
-        results: list[dict[str, str | float]] = []
+        results: list[dict[str, Any]] = []
         for score, idx in zip(scores[0], indices[0], strict=False):
             if idx < 0 or idx >= len(self.documents):
                 continue
@@ -140,6 +177,12 @@ class FaissVectorStore:
                     "file_path": doc.file_path,
                     "content": doc.content,
                     "chunk_id": doc.chunk_id,
+                    "symbol_name": doc.symbol_name,
+                    "start_line": doc.start_line,
+                    "end_line": doc.end_line,
+                    "chunk_kind": doc.chunk_kind,
+                    "content_hash": doc.content_hash,
+                    "chunk_version": doc.chunk_version,
                     "dense_score": dense_score,
                     "lexical_score": 0.0,
                     "rerank_score": dense_score,
@@ -169,6 +212,8 @@ class FaissVectorStore:
             "nprobe": self.nprobe,
             "ivf_min_points": self.ivf_min_points,
             "documents": len(self.documents),
+            "chunk_version": CHUNK_VERSION,
+            "chunk_strategy": "structured_v3",
         }
 
     @classmethod
@@ -200,14 +245,27 @@ class FaissVectorStore:
 
         with docs_path.open(encoding="utf-8") as f:
             raw_docs = json.load(f)
-        documents = [
-            CodeDocument(
-                file_path=str(d["file_path"]),
-                content=str(d["content"]),
-                chunk_id=str(d.get("chunk_id", "") or ""),
-            )
-            for d in raw_docs
-        ]
+        documents = []
+        for d in raw_docs:
+            if not isinstance(d, dict):
+                raise ValueError("invalid documents.json row: expected object")
+            try:
+                doc = CodeDocument(
+                    file_path=str(d["file_path"]),
+                    content=str(d["content"]),
+                    chunk_id=str(d["chunk_id"]),
+                    symbol_name=(str(d["symbol_name"]) if d["symbol_name"] is not None else None),
+                    start_line=(int(d["start_line"]) if d["start_line"] is not None else None),
+                    end_line=(int(d["end_line"]) if d["end_line"] is not None else None),
+                    chunk_kind=str(d["chunk_kind"]),
+                    content_hash=str(d["content_hash"]),
+                    chunk_version=str(d["chunk_version"]),
+                )
+            except KeyError as exc:
+                raise ValueError(f"legacy documents.json detected (missing field: {exc})") from exc
+            if doc.chunk_version != CHUNK_VERSION:
+                raise ValueError(f"unsupported chunk_version={doc.chunk_version}")
+            documents.append(doc)
 
         store = cls(
             embedding=embedding,
@@ -251,7 +309,6 @@ class FaissVectorStore:
             return faiss.IndexFlatIP(self.dim)
 
         try:
-            # Use an IP quantizer over normalized vectors (cosine similarity via IP).
             quantizer = faiss.IndexFlatIP(self.dim)
             effective_nlist = min(self.nlist, max(1, n_docs // 8))
             index = faiss.IndexIVFPQ(
@@ -292,7 +349,9 @@ def write_index_meta(
     index_dir = Path(index_dir)
     index_dir.mkdir(parents=True, exist_ok=True)
     meta: dict[str, Any] = {
-        "version": 2,
+        "version": INDEX_META_VERSION,
+        "chunk_version": CHUNK_VERSION,
+        "chunk_strategy": "structured_v3",
         "backend_id": backend_id,
         "dim": dim,
         "codebase_root": codebase_root,
@@ -312,7 +371,10 @@ def read_index_meta(index_dir: Path) -> dict[str, Any] | None:
     if not meta_path.exists():
         return None
     with meta_path.open(encoding="utf-8") as f:
-        return json.load(f)
+        payload = json.load(f)
+    if not isinstance(payload, dict):
+        raise ValueError("invalid index meta format")
+    return payload
 
 
 def embedding_model_label(embedding: EmbeddingBackend) -> str | None:

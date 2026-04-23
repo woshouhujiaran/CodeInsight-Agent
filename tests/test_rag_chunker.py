@@ -1,33 +1,55 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 from app.rag.chunker import TokenChunker
 
 
-def test_fixed_chunker_overlap() -> None:
-    text = " ".join(f"t{i}" for i in range(30))
-    chunker = TokenChunker(chunk_size=10, overlap=2, strategy="fixed")
-    chunks = chunker.split("x.py", text)
-    assert len(chunks) >= 3
-    first_tokens = chunks[0].content.split()
-    second_tokens = chunks[1].content.split()
-    assert first_tokens[-2:] == second_tokens[:2]
-
-
-def test_semantic_chunker_preserves_boundaries() -> None:
+def test_python_ast_chunker_extracts_symbols_and_lines() -> None:
     text = """
 class A:
-    pass
+    def m(self, x):
+        return x + 1
 
-def f():
-    return 1
 
-def g():
-    return 2
+def f(a, b):
+    return a + b
 """.strip()
-    chunker = TokenChunker(chunk_size=8, overlap=2, strategy="semantic")
+    chunker = TokenChunker(chunk_size=120, overlap=20, strategy="structured_v3")
     chunks = chunker.split("m.py", text)
+
     assert chunks
-    joined = "\n".join(c.content for c in chunks)
-    assert "class A" in joined
-    assert "def f" in joined
-    assert "def g" in joined
+    assert all(c.chunk_version == "v3" for c in chunks)
+    assert all(c.file_path == "m.py" for c in chunks)
+    assert all(c.start_line is not None and c.end_line is not None for c in chunks)
+    symbols = {c.symbol_name for c in chunks}
+    assert "A" in symbols
+    assert "A.m" in symbols
+    assert "f" in symbols
+
+
+def test_non_python_chunker_generates_structured_metadata() -> None:
+    text = """
+export function loadUsers() {
+  return []
+}
+
+export function saveUsers(users) {
+  return users.length
+}
+""".strip()
+    chunker = TokenChunker(chunk_size=30, overlap=5, strategy="structured_v3")
+    chunks = chunker.split("x.ts", text)
+
+    assert chunks
+    assert all(c.chunk_kind == "text" for c in chunks)
+    assert all(c.symbol_name is None for c in chunks)
+    assert all(c.start_line is not None and c.end_line is not None for c in chunks)
+    assert all(c.content_hash for c in chunks)
+
+
+def test_chunker_rejects_legacy_strategies() -> None:
+    try:
+        TokenChunker(chunk_size=20, overlap=5, strategy="fixed")
+    except ValueError as exc:
+        assert "structured_v3" in str(exc)
+    else:
+        raise AssertionError("expected ValueError")

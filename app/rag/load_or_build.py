@@ -1,4 +1,4 @@
-from __future__ import annotations
+﻿from __future__ import annotations
 
 import os
 from pathlib import Path
@@ -14,6 +14,8 @@ from app.rag.index_manifest import (
 )
 from app.rag.ingest import CodeIngestor
 from app.rag.vector_store import (
+    CHUNK_VERSION,
+    INDEX_META_VERSION,
     FaissVectorStore,
     embedding_model_label,
     read_index_meta,
@@ -65,9 +67,24 @@ def _store_config_from_env() -> dict[str, Any]:
 
 
 def _chunk_config_from_env() -> dict[str, Any]:
+    strategy = str(os.getenv("RAG_CHUNK_STRATEGY", "structured_v3")).strip().lower()
+    if strategy != "structured_v3":
+        raise ValueError("unsupported RAG_CHUNK_STRATEGY; only `structured_v3` is allowed")
     return {
-        "chunk_strategy": str(os.getenv("RAG_CHUNK_STRATEGY", "fixed")).strip().lower(),
+        "chunk_strategy": strategy,
     }
+
+
+def _is_legacy_index_meta(meta: dict[str, Any] | None) -> bool:
+    if not meta:
+        return False
+    if int(meta.get("version", 0)) != INDEX_META_VERSION:
+        return True
+    if str(meta.get("chunk_version", "")).strip() != CHUNK_VERSION:
+        return True
+    if str(meta.get("chunk_strategy", "")).strip().lower() != "structured_v3":
+        return True
+    return False
 
 
 def load_or_build_vector_store(
@@ -94,8 +111,16 @@ def load_or_build_vector_store(
     store_cfg = _store_config_from_env()
     chunk_cfg = _chunk_config_from_env()
 
+    if _is_legacy_index_meta(meta) and not force_reindex:
+        raise RuntimeError(
+            "legacy RAG index detected; structured_v3 is required. "
+            "Re-run with force_reindex=True (or --force-reindex) to rebuild."
+        )
+
     def meta_compatible() -> bool:
         if not meta:
+            return False
+        if _is_legacy_index_meta(meta):
             return False
         if meta.get("backend_id") != embedding.backend_id:
             return False
@@ -135,6 +160,8 @@ def load_or_build_vector_store(
                     "status": "loaded",
                     "index_dir": str(index_dir),
                     "snapshot": snapshot,
+                    "chunk_strategy": chunk_cfg["chunk_strategy"],
+                    "chunk_version": CHUNK_VERSION,
                     "incremental": {"changed_files": 0, "deleted_files": 0},
                 }
 
@@ -171,6 +198,8 @@ def load_or_build_vector_store(
                 "status": "incremental",
                 "index_dir": str(index_dir),
                 "snapshot": snapshot,
+                "chunk_strategy": chunk_cfg["chunk_strategy"],
+                "chunk_version": CHUNK_VERSION,
                 "ingest": ingest_stats,
                 "incremental": {
                     "changed_files": len(changed_files),
@@ -203,6 +232,8 @@ def load_or_build_vector_store(
     return store, {
         "status": "built",
         "index_dir": str(index_dir),
+        "chunk_strategy": chunk_cfg["chunk_strategy"],
+        "chunk_version": CHUNK_VERSION,
         "ingest": ingest_stats,
         "snapshot": snapshot,
     }
