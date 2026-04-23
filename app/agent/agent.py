@@ -12,6 +12,7 @@ from app.agent.executor import Executor
 from app.agent.memory import ConversationMemory
 from app.agent.planner import Planner
 from app.agent.recovery import apply_recovery_strategy, evaluate_recovery
+from app.agent.task_board import TaskBoard
 from app.agent.context_builder import build_context
 from app.agent.tool_specs import compact_tool_specs_for_prompt
 from app.llm.llm import AGENTIC_JSON_SYSTEM_SUFFIX, AGENTIC_TOOL_USE_POLICY, LLMClient
@@ -311,6 +312,98 @@ class CodeAgent:
             trace_id=trace_id,
         )
 
+    def run_minimal_agent_loop(
+        self,
+        user_query: str,
+        *,
+        max_tasks: int = 3,
+        max_turns_per_task: int = 6,
+        workspace_root: str | None = None,
+        persist_memory: bool = True,
+        cancel_event: Any | None = None,
+    ) -> AgenticTurnResult:
+        """
+        Minimal end-to-end agent loop:
+        Planner(task board) -> per-task ReAct loop -> observed-result synthesis.
+        """
+        trace_id = uuid4().hex[:12]
+        set_trace_id(trace_id)
+        root = workspace_root if workspace_root is not None else (self._workspace_root or ".")
+        history = self.memory.get_messages()
+        plan_rows = self.planner.make_task_board(user_query=user_query, history=history)
+        planned_tasks = self._ordered_minimal_tasks(plan_rows, max_tasks=max_tasks)
+        if not planned_tasks:
+            planned_tasks = [
+                {
+                    "id": "t1",
+                    "title": "Analyze request",
+                    "description": "Understand user goal and gather evidence via tools.",
+                    "acceptance": "Tool evidence is collected and user question is answerable.",
+                    "depends_on": [],
+                    "status": "pending",
+                }
+            ]
+
+        combined_trace: list[dict[str, Any]] = []
+        task_notes: list[str] = []
+        transcript: list[dict[str, str]] = [{"role": "user", "content": user_query}]
+
+        for idx, task in enumerate(planned_tasks, start=1):
+            if cancel_event is not None and cancel_event.is_set():
+                break
+            task_prompt = self._build_minimal_task_prompt(
+                user_query=user_query,
+                task=task,
+                root=root,
+                task_notes=task_notes,
+                tool_trace=combined_trace,
+            )
+            turn = self.run_agentic(
+                task_prompt,
+                max_turns=max_turns_per_task,
+                workspace_root=root,
+                persist_memory=False,
+                cancel_event=cancel_event,
+            )
+            combined_trace.extend(turn.tool_trace)
+            answer = str(turn.answer or "").strip()
+            if answer:
+                task_title = str(task.get("title") or task.get("id") or f"task-{idx}")
+                task_notes.append(f"[{task_title}] {answer}")
+
+            transcript.append({"role": "assistant", "content": f"task_{idx}_answer={answer or '(empty)'}"})
+            transcript.append(
+                {"role": "user", "content": f"task_{idx}_observations={self._compact_trace_for_prompt(turn.tool_trace)}"}
+            )
+
+        answer_context = self._build_agentic_tool_context(user_query=user_query, tool_trace=combined_trace)
+        if task_notes:
+            answer_context = (
+                f"{answer_context}\n\n=== Task summaries ===\n" + "\n".join(f"- {item}" for item in task_notes)
+            ).strip()
+        final_answer = str(self.llm.generate_answer(user_query=user_query, context=answer_context, history=history) or "").strip()
+        if not final_answer:
+            final_answer = "\n".join(task_notes).strip() or "No final answer generated."
+
+        if persist_memory and not (cancel_event is not None and cancel_event.is_set()):
+            self.memory.add_user_message(user_query)
+            self.memory.add_assistant_message(final_answer)
+            self.memory.add_turn_metadata(
+                plan=planned_tasks,
+                tool_results=combined_trace,
+                recovery_applied=False,
+                trace_id=trace_id,
+                extra={"agentic": True, "minimal_loop": True},
+            )
+
+        transcript.append({"role": "assistant", "content": final_answer})
+        return AgenticTurnResult(
+            answer=final_answer,
+            messages=transcript,
+            tool_trace=combined_trace,
+            trace_id=trace_id,
+        )
+
     def _synthesize_agentic_answer(
         self,
         *,
@@ -351,6 +444,55 @@ class CodeAgent:
                 f"Output:\n{result.get('output', '')}"
             )
         return "\n\n".join(lines).strip()
+
+    def _ordered_minimal_tasks(self, rows: list[dict[str, Any]], *, max_tasks: int) -> list[dict[str, Any]]:
+        if not rows:
+            return []
+        limit = max(1, int(max_tasks))
+        try:
+            board = TaskBoard.from_dicts(rows)
+        except Exception:  # noqa: BLE001
+            return [dict(item) for item in rows[:limit] if isinstance(item, dict)]
+        ordered = board.ordered_tasks()[:limit]
+        return [task.to_dict() for task in ordered]
+
+    def _build_minimal_task_prompt(
+        self,
+        *,
+        user_query: str,
+        task: dict[str, Any],
+        root: str,
+        task_notes: list[str],
+        tool_trace: list[dict[str, Any]],
+    ) -> str:
+        prior_notes = "\n".join(f"- {item}" for item in task_notes) if task_notes else "- none"
+        prior_obs = self._compact_trace_for_prompt(tool_trace)
+        return (
+            f"User goal:\n{user_query}\n\n"
+            f"Current task:\n"
+            f"- id: {task.get('id', '')}\n"
+            f"- title: {task.get('title', '')}\n"
+            f"- description: {task.get('description', '')}\n"
+            f"- acceptance: {task.get('acceptance', '')}\n\n"
+            f"Workspace root:\n{root}\n\n"
+            f"Completed task summaries:\n{prior_notes}\n\n"
+            f"Observed tool outputs so far:\n{prior_obs}\n\n"
+            "Use tools when necessary. Return a concise final answer for this task."
+        )
+
+    def _compact_trace_for_prompt(self, tool_trace: list[dict[str, Any]], *, max_items: int = 4) -> str:
+        if not tool_trace:
+            return "- none"
+        rows = tool_trace[-max_items:]
+        lines: list[str] = []
+        for row in rows:
+            tool = str(row.get("tool", "unknown_tool"))
+            status = str(row.get("status", "unknown"))
+            output = str(row.get("output", "")).strip().replace("\n", " ")
+            if len(output) > 180:
+                output = output[:177] + "..."
+            lines.append(f"- {tool} [{status}] {output}")
+        return "\n".join(lines)
 
     def _record_turn_metrics(self, *, tool_results: list[dict[str, Any]], duration_ms: int) -> None:
         if not tool_results:
