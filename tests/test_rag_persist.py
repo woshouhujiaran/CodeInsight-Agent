@@ -76,8 +76,8 @@ def test_force_reindex_rebuilds(tmp_path: Path) -> None:
 
     (code_dir / "b.py").write_text("b = 2\n", encoding="utf-8")
     _, meta = load_or_build_vector_store(str(code_dir), index_dir, emb, force_reindex=False)
-    # Snapshot changed -> should rebuild automatically
-    assert meta["status"] == "built"
+    # Snapshot changed -> should update incrementally
+    assert meta["status"] == "incremental"
 
     load_or_build_vector_store(str(code_dir), index_dir, emb, force_reindex=True)
     m = read_index_meta(index_dir)
@@ -99,3 +99,22 @@ def test_load_or_build_excludes_generated_output_directories(tmp_path: Path) -> 
     paths = [doc.file_path for doc in store.documents]
     assert any("service.py" in path for path in paths)
     assert all("outputs" not in path for path in paths)
+
+
+def test_incremental_update_removes_deleted_files(tmp_path: Path) -> None:
+    code_dir = tmp_path / "cb4"
+    code_dir.mkdir()
+    a_path = code_dir / "a.py"
+    b_path = code_dir / "b.py"
+    a_path.write_text("def keep():\n    return 1\n", encoding="utf-8")
+    b_path.write_text("def remove_me():\n    return 2\n", encoding="utf-8")
+
+    index_dir = tmp_path / "idx4"
+    emb = HashEmbedding(dim=384)
+    store1, _ = load_or_build_vector_store(str(code_dir), index_dir, emb, force_reindex=False)
+    assert any("b.py" in doc.file_path for doc in store1.documents)
+
+    b_path.unlink()
+    store2, meta2 = load_or_build_vector_store(str(code_dir), index_dir, emb, force_reindex=False)
+    assert meta2["status"] == "incremental"
+    assert all("b.py" not in doc.file_path for doc in store2.documents)
