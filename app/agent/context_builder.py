@@ -14,9 +14,14 @@ MAX_SEARCH_SNIPPET_CHARS = 1_600
 
 _TOOL_PRIORITY: dict[str, int] = {
     "search_tool": 120,
+    "code_search": 120,
     "read_file_tool": 100,
+    "open_file": 100,
+    "find_symbol": 98,
     "grep_tool": 95,
     "list_dir_tool": 80,
+    "run_code": 58,
+    "run_tests": 56,
     "analyze_tool": 70,
     "optimize_tool": 60,
     "test_tool": 55,
@@ -126,7 +131,7 @@ def _collect_pieces(tool_results: list[dict[str, Any]]) -> list[_ContextPiece]:
             base_priority += 20.0
         base_priority += float(depth) * 3.0
 
-        if tool == "search_tool":
+        if tool in {"search_tool", "code_search"}:
             parsed = _parse_search_hits(row.get("output"))
             if parsed:
                 for hit_idx, hit in enumerate(parsed, start=1):

@@ -17,6 +17,7 @@ from app.rag.load_or_build import compute_vector_store_snapshot, load_or_build_v
 from app.rag.retriever import CodeRetriever
 from app.rag.vector_store import embedding_model_label
 from app.tools.analyze_tool import AnalyzeTool
+from app.tools.agent_compat_tools import CodeSearchTool, FindSymbolTool, OpenFileTool, RunCodeTool, RunTestsTool
 from app.tools.filesystem_tools import GrepTool, ListDirTool, ReadFileTool
 from app.tools.optimize_tool import OptimizeTool
 from app.tools.run_command_tool import RunCommandTool
@@ -182,13 +183,19 @@ def create_agent_from_env(
         retrieval_profile=str(retrieval_profile or os.getenv("RETRIEVAL_PROFILE", "hybrid")),
     )
     registry = ToolRegistry()
-    registry.register(SearchTool(retriever=retriever, top_k=top_k))
+    search_tool = SearchTool(retriever=retriever, top_k=top_k)
+    registry.register(search_tool)
+    registry.register(CodeSearchTool(delegate=search_tool))
     registry.register(AnalyzeTool(llm=llm))
     registry.register(OptimizeTool(llm=llm))
     registry.register(TestTool(llm=llm))
-    registry.register(ReadFileTool(workspace_root=resolved_root))
+    read_file_tool = ReadFileTool(workspace_root=resolved_root)
+    registry.register(read_file_tool)
+    registry.register(OpenFileTool(delegate=read_file_tool))
     registry.register(ListDirTool(workspace_root=resolved_root))
-    registry.register(GrepTool(workspace_root=resolved_root))
+    grep_tool = GrepTool(workspace_root=resolved_root)
+    registry.register(grep_tool)
+    registry.register(FindSymbolTool(grep_delegate=grep_tool))
 
     if allow_write:
         registry.register(ApplyPatchTool(workspace_root=resolved_root))
@@ -197,10 +204,16 @@ def create_agent_from_env(
 
     if allow_shell:
         allowed_commands = [test_command] if str(test_command or "").strip() else []
+        run_command_tool = RunCommandTool(
+            workspace_root=resolved_root,
+            allowed_commands=allowed_commands,
+        )
+        registry.register(run_command_tool)
+        registry.register(RunCodeTool(delegate=run_command_tool))
         registry.register(
-            RunCommandTool(
-                workspace_root=resolved_root,
-                allowed_commands=allowed_commands,
+            RunTestsTool(
+                delegate=run_command_tool,
+                default_command=str(test_command or "").strip() or "pytest -q",
             )
         )
         logger.info("allow_shell=True: registered run_command_tool")

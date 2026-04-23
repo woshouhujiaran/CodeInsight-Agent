@@ -150,17 +150,59 @@ RUN_COMMAND_TOOL_PARAMETERS: dict[str, Any] = {
     ],
 }
 
+FIND_SYMBOL_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "required": ["symbol"],
+    "properties": {
+        "symbol": {"type": "string", "minLength": 1, "description": "symbol name to find"},
+        "path": {"type": "string", "minLength": 1, "description": "file or directory path under workspace"},
+        "glob": {"type": "string", "description": "optional filename glob filter, such as *.py"},
+        "max_matches": {"type": "integer", "minimum": 1, "maximum": 5000, "description": "max match rows"},
+    },
+}
+
+RUN_TESTS_TOOL_PARAMETERS: dict[str, Any] = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "argv": {
+            "type": "array",
+            "items": {"type": "string"},
+            "minItems": 1,
+            "description": "optional argv override for test command",
+        },
+        "command": {
+            "type": "string",
+            "minLength": 1,
+            "description": "optional command override; defaults to pytest -q when omitted",
+        },
+        "timeout_seconds": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 600,
+            "description": "optional timeout in seconds",
+        },
+    },
+    "not": {"required": ["argv", "command"]},
+}
+
 TOOL_PARAMETER_SCHEMAS: dict[str, dict[str, Any]] = {
     "search_tool": SEARCH_TOOL_PARAMETERS,
+    "code_search": SEARCH_TOOL_PARAMETERS,
     "analyze_tool": INPUT_ONLY_PARAMETERS,
     "optimize_tool": INPUT_ONLY_PARAMETERS,
     "test_tool": INPUT_ONLY_PARAMETERS,
     "read_file_tool": READ_FILE_TOOL_PARAMETERS,
+    "open_file": READ_FILE_TOOL_PARAMETERS,
     "list_dir_tool": LIST_DIR_TOOL_PARAMETERS,
     "grep_tool": GREP_TOOL_PARAMETERS,
+    "find_symbol": FIND_SYMBOL_TOOL_PARAMETERS,
     "write_file_tool": WRITE_FILE_TOOL_PARAMETERS,
     "apply_patch_tool": APPLY_PATCH_TOOL_PARAMETERS,
     "run_command_tool": RUN_COMMAND_TOOL_PARAMETERS,
+    "run_code": RUN_COMMAND_TOOL_PARAMETERS,
+    "run_tests": RUN_TESTS_TOOL_PARAMETERS,
 }
 
 # 未在 TOOL_PARAMETER_SCHEMAS 中声明的已注册工具（如测试替身）使用宽松 schema
@@ -234,6 +276,23 @@ def validate_agentic_tool_call(registry: "ToolRegistry", tool_name: Any, argumen
 
     if name in ALLOWED_TOOLS:
         return validate_tool_args(name, arguments)
-    if name == "run_command_tool":
+    if name in {"run_command_tool", "run_code"}:
         return validate_run_command_arguments(arguments)
+    if name == "run_tests":
+        if "argv" in arguments and "command" in arguments:
+            return "run_tests arguments cannot include both argv and command"
+        if "argv" in arguments:
+            argv = arguments.get("argv")
+            if not isinstance(argv, list) or not argv:
+                return "run_tests.argv must be a non-empty list"
+            if not all(isinstance(item, str) for item in argv):
+                return "run_tests.argv items must be strings"
+        if "command" in arguments:
+            command = arguments.get("command")
+            if not isinstance(command, str) or not command.strip():
+                return "run_tests.command must be a non-empty string"
+        timeout = arguments.get("timeout_seconds")
+        if timeout is not None and (not isinstance(timeout, (int, float)) or timeout < 1 or timeout > 600):
+            return "run_tests.timeout_seconds must be between 1 and 600"
+        return None
     return None
