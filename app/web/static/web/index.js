@@ -1,4 +1,4 @@
-    const LAYOUT_STORAGE_KEY = "codeinsight.web.layout.v1";
+﻿    const LAYOUT_STORAGE_KEY = "codeinsight.web.layout.v1";
     const SIDEBAR_WIDTH_STORAGE_KEY = "codeinsight.web.sidebarWidth.v1";
     const SESSION_NAV_WIDTH_STORAGE_KEY = "codeinsight.web.sessionNavWidth.v1";
     const ASSISTANT_CHAT_WIDTH_STORAGE_KEY = "codeinsight.web.assistantChatWidth.v1";
@@ -124,7 +124,7 @@
       activeGroup.innerHTML = `
         <div class="session-group-head">
           <div class="session-group-title">未归档</div>
-          <div class="session-group-note">点击进入会话；归档或恢复直接操作，其余动作请使用更多菜单。</div>
+          <div class="session-group-note">点击进入会话；归档或恢复可直接操作，其余动作请使用更多菜单。</div>
         </div>
       `;
       activeGroup.appendChild(sessionList);
@@ -1145,7 +1145,7 @@
       if (!messages.length) {
         els.messages.innerHTML = shouldShowPendingAssistant
           ? ""
-          : '<div class="empty">开始一轮多步对话后，消息会显示在这里。</div>';
+          : '<div class="empty">开始一轮对话后，消息会显示在这里。</div>';
         if (shouldShowPendingAssistant) els.messages.appendChild(state.pendingAssistantEl);
         return;
       }
@@ -1223,7 +1223,7 @@
         return;
       }
       const lines = [
-        `工作区：${formatWorkspaceLabel(state.currentSession.workspace_root)}`, 
+        `工作区：${formatWorkspaceLabel(state.currentSession.workspace_root)}`,
         `条目数：${state.workspaceEntries.length}`
       ];
       if (note) lines.push(note);
@@ -1980,7 +1980,7 @@
         upsertSessionSummary(state.currentSession);
         applySessionToControls(state.currentSession);
         // 一轮结束时服务端会在 assistant_final 之后立刻推送 session，此时 messages 已含助手消息。
-        // 若仍保留 pending 气泡并 append 到列表末尾，会与刚渲染的助手消息重复，看起来像两段回答叠在一起。
+        // 若仍保留 pending 气泡并 append 到列表末尾，会与刚渲染的助手消息重复。
         const msgs = state.currentSession.messages || [];
         const last = msgs[msgs.length - 1];
         if (last && last.role === "assistant" && state.pendingAssistantEl) clearPendingAssistant();
@@ -2758,3 +2758,6 @@
       if (nextSession) await loadSession(nextSession.session_id);
       else updateMeta();
     }).catch(error => setStatus(error.message));
+
+
+

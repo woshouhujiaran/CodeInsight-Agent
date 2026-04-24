@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8">
@@ -8,91 +8,91 @@
   <link rel="stylesheet" href="/static/web/index.css">
 </head>
 <body>
-  <div id="appLayout" class="layout">
-    <section id="sidebarPanel" class="panel sidebar">
+  <div id="appLayout" class="layout surface-app"><!-- [新增优化] -->
+    <section id="sidebarPanel" class="panel sidebar surface-panel">
       <div id="sidebarResizeHandle" class="panel-edge-resize-handle sidebar-edge-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整文件面板宽度" tabindex="0"></div>
       <div class="panel-header">
         <div class="stack">
           <div class="panel-title">文件 / 工作区</div>
-          <div class="panel-subtitle">文件树、路径提示与刷新固定在左侧，不再混入会话管理。</div>
+          <div class="panel-subtitle">左侧专注文件树与路径，避免和会话管理混在一起。</div>
         </div>
       </div>
       <div class="sidebar-body">
-        <div class="card sidebar-card sidebar-tree-card">
-          <div id="workspaceMeta" class="workspace-meta">尚未选择会话</div>
+        <div class="card sidebar-card sidebar-tree-card card-muted">
+          <div id="workspaceMeta" class="workspace-meta">还没有选中会话</div>
           <div id="workspaceTree" class="workspace-tree"></div>
         </div>
       </div>
     </section>
 
-    <section class="panel editor">
+    <section class="panel editor surface-panel editor-spotlight"><!-- [新增优化] -->
       <div class="panel-header">
         <div class="stack">
           <div class="panel-title">编辑区</div>
-          <div class="panel-subtitle">编辑器优先，抽屉与辅助信息不再挤占核心代码空间。</div>
+          <div class="panel-subtitle">把代码放在视觉中心，辅助信息只在需要时出现。</div>
         </div>
         <div class="panel-actions">
-          <button id="reloadFileBtn" class="secondary" type="button">重新加载</button>
-          <button id="saveFileBtn" type="button">保存文件</button>
+          <button id="reloadFileBtn" class="secondary btn-secondary" type="button">重新加载</button>
+          <button id="saveFileBtn" class="btn-primary" type="button">保存文件</button>
         </div>
       </div>
 
       <div class="toolbar">
         <div class="toolbar-edge">
-          <button id="toggleLeftSidebarBtn" class="secondary toolbar-toggle" type="button" aria-controls="sidebarPanel" aria-expanded="true" aria-label="折叠左侧工作区侧栏">文件</button>
+          <button id="toggleLeftSidebarBtn" class="secondary toolbar-toggle btn-secondary" type="button" aria-controls="sidebarPanel" aria-expanded="true" aria-label="折叠左侧工作区侧栏">文件</button>
         </div>
         <div class="toolbar-main">
           <div id="editorTitle" class="editor-title">本地代码工作台</div>
-          <div id="editorMeta" class="panel-subtitle">多标签编辑模式，左右侧栏可独立折叠。</div>
+          <div id="editorMeta" class="panel-subtitle">多标签编辑，左右侧栏可独立折叠。</div>
         </div>
         <div class="toolbar-actions">
           <details id="toolbarMoreMenu" class="toolbar-menu">
             <summary>更多</summary>
             <div class="toolbar-menu-panel">
-              <button class="secondary" type="button" data-drawer-target="settings">会话设置</button>
-              <button class="secondary" type="button" data-drawer-target="tasks">任务看板</button>
-              <button class="secondary" type="button" data-drawer-target="tests">最近测试</button>
-              <button class="secondary" type="button" data-drawer-target="eval">最近评测</button>
+              <button class="secondary btn-secondary" type="button" data-drawer-target="settings">会话设置</button>
+              <button class="secondary btn-secondary" type="button" data-drawer-target="tasks">任务看板</button>
+              <button class="secondary btn-secondary" type="button" data-drawer-target="tests">最近测试</button>
+              <button class="secondary btn-secondary" type="button" data-drawer-target="eval">最近评测</button>
             </div>
           </details>
-          <button id="toggleRightSidebarBtn" class="secondary toolbar-toggle" type="button" aria-controls="assistantPanel" aria-expanded="true" aria-label="折叠右侧会话与对话侧栏">会话</button>
+          <button id="toggleRightSidebarBtn" class="secondary toolbar-toggle btn-secondary" type="button" aria-controls="assistantPanel" aria-expanded="true" aria-label="折叠右侧会话与对话侧栏">会话</button>
         </div>
       </div>
 
       <section id="contextDrawer" class="context-drawer" hidden>
-        <div class="context-drawer-frame">
+        <div class="context-drawer-frame card-muted">
           <div class="context-drawer-head">
             <div class="stack">
               <div id="contextDrawerTitle" class="pane-title">会话设置</div>
               <div id="contextDrawerSubtitle" class="pane-subtitle">绑定工作区、权限和测试参数。</div>
             </div>
-            <button id="closeDrawerBtn" class="ghost" type="button">收起</button>
+            <button id="closeDrawerBtn" class="ghost btn-ghost" type="button">收起</button>
           </div>
           <div class="context-drawer-body">
             <div id="drawerSettingsPanel" class="drawer-panel">
               <div class="settings-card">
                 <div class="section-head">
                   <h3>会话设置</h3>
-                  <button id="saveSettingsBtn" class="secondary" type="button">保存</button>
+                  <button id="saveSettingsBtn" class="secondary btn-secondary" type="button">保存</button>
                 </div>
                 <div class="settings-grid">
                   <label class="field">
                     <span class="field-label">工作区根目录</span>
                     <input id="workspaceInput" type="text" placeholder="问答模式可留空；任务模式请填写真实项目路径">
                     <div class="workspace-picker-row">
-                      <button id="openFolderBtn" class="secondary" type="button">打开文件夹</button>
-                      <button id="openFileBtn" class="secondary" type="button">打开文件</button>
+                      <button id="openFolderBtn" class="secondary btn-secondary" type="button">打开文件夹</button>
+                      <button id="openFileBtn" class="secondary btn-secondary" type="button">打开文件</button>
                     </div>
                   </label>
                   <div class="setting-pills">
                     <label class="toggle-chip"><input id="allowWriteInput" type="checkbox"><span>允许写盘</span></label>
-                    <label class="toggle-chip"><input id="allowShellInput" type="checkbox"><span>允许受控命令</span></label>
+                    <label class="toggle-chip"><input id="allowShellInput" type="checkbox"><span>允许命令</span></label>
                     <label class="toggle-chip"><input id="autoRunTestsInput" type="checkbox"><span>自动测试</span></label>
                   </div>
                   <div class="settings-inline">
                     <label class="field">
                       <span class="field-label">测试命令</span>
-                      <input id="testCommandInput" type="text" placeholder="例如：python -m pytest -q；Agent 和“运行测试”会复用这条命令">
+                      <input id="testCommandInput" type="text" placeholder="例如：python -m pytest -q，Agent 和“运行测试”会共用这条命令">
                     </label>
                     <label class="field">
                       <span class="field-label">轮次</span>
@@ -105,20 +105,20 @@
 
             <div id="drawerTasksPanel" class="drawer-panel" hidden>
               <div class="section-head"><h3>任务看板</h3></div>
-              <div id="taskBoard" class="empty">暂无任务</div>
+              <div id="taskBoard" class="empty">当前没有任务</div>
             </div>
 
             <div id="drawerTestsPanel" class="drawer-panel" hidden>
               <div class="section-head">
                 <h3>最近一次测试</h3>
-                <button id="runTestsBtn" class="secondary" type="button">运行测试</button>
+                <button id="runTestsBtn" class="secondary btn-secondary" type="button">运行测试</button>
               </div>
-              <div id="testSummary" class="empty">尚未运行测试</div>
+              <div id="testSummary" class="empty">还没有测试结果</div>
             </div>
 
             <div id="drawerEvalPanel" class="drawer-panel" hidden>
               <div class="section-head"><h3>最近评测</h3></div>
-              <div id="evalSummary" class="empty">暂无评测结果</div>
+              <div id="evalSummary" class="empty">当前没有评测结果</div>
             </div>
           </div>
         </div>
@@ -126,52 +126,52 @@
 
       <div class="editor-shell">
         <div id="fileTabs" class="file-tabs"></div>
-        <div class="editor-pane">
-          <div id="editorEmpty" class="empty editor-empty">点击左侧文件树中的文件开始查看或编辑。支持多文件标签切换。</div>
+        <div class="editor-pane card-muted">
+          <div id="editorEmpty" class="empty editor-empty">从左侧文件树打开文件后，就可以在这里继续修改。</div>
           <textarea id="editorTextarea" class="editor-textarea" spellcheck="false" wrap="off" hidden></textarea>
-          <div id="editorStatus" class="editor-statusbar">尚未打开文件</div>
+          <div id="editorStatus" class="editor-statusbar">还没有打开文件</div>
         </div>
       </div>
     </section>
 
-    <aside id="assistantPanel" class="panel assistant">
+    <aside id="assistantPanel" class="panel assistant surface-panel">
       <div id="assistantPanelResizeHandle" class="panel-edge-resize-handle assistant-panel-resize-handle" role="separator" aria-orientation="vertical" aria-label="调整会话面板宽度" tabindex="0"></div>
       <div class="panel-header">
         <div class="stack">
           <div class="panel-title">会话 / 历史</div>
-          <div class="panel-subtitle">会话切换、历史对话与输入集中在右侧，不再挤占左侧工作区。</div>
+          <div class="panel-subtitle">右侧聚合会话切换、历史和输入，不打断代码编辑。</div>
         </div>
       </div>
       <div class="assistant-chat-shell">
         <div id="sessionRail" class="session-rail" aria-label="会话管理">
-          <button id="newSessionBtn" class="secondary session-rail-btn" type="button" aria-label="新建会话">+</button>
-          <div id="currentSessionRail" class="session-rail-current empty" role="status" aria-live="polite" aria-label="尚未选择会话" title="尚未选择会话">当前</div>
+          <button id="newSessionBtn" class="secondary session-rail-btn btn-secondary" type="button" aria-label="新建会话">+</button>
+          <div id="currentSessionRail" class="session-rail-current empty" role="status" aria-live="polite" aria-label="还没有选中会话" title="还没有选中会话">当前</div>
           <button id="deleteSessionBtn" class="danger session-rail-btn session-rail-delete" type="button" aria-label="删除当前会话" hidden>-</button>
         </div>
         <div class="assistant-main">
-          <div class="card assistant-session-card">
+          <div class="card assistant-session-card card-muted">
             <div class="section-head">
               <div class="stack">
                 <h3>会话列表</h3>
-                <div class="panel-subtitle">按当前工作区与问答模式分组，选中会话后右下区域显示完整历史。</div>
+                <div class="panel-subtitle">按工作区和模式分组，选中后右侧立刻展示完整上下文。</div>
               </div>
             </div>
             <div id="sessionList" class="session-list"></div>
           </div>
-          <div class="card chat-card">
-            <div id="chatMeta" class="chat-meta">尚未选择会话</div>
+          <div class="card chat-card card-muted">
+            <div id="chatMeta" class="chat-meta">还没有选中会话</div>
             <section id="changeSummary" class="change-summary" hidden>
               <div class="stack">
                 <div class="pane-title">本次修改</div>
-                <div id="changeSummaryMeta" class="pane-subtitle">暂无变更</div>
+                <div id="changeSummaryMeta" class="pane-subtitle">暂时没有变更</div>
               </div>
               <div id="changeSummaryList" class="change-summary-list"></div>
             </section>
             <div id="messages" class="messages"></div>
             <div class="composer">
-              <textarea id="messageInput" placeholder="输入你的目标，例如：分析登录模块并修改错误处理，然后补充最小测试。Enter 发送，Shift+Enter 换行。"></textarea>
+              <textarea id="messageInput" placeholder="直接说目标，例如：排查登录报错并补最小测试。Enter 发送，Shift+Enter 换行。"></textarea>
               <div class="row" style="margin-top:10px">
-                <button id="sendBtn" type="button">发送</button>
+                <button id="sendBtn" class="btn-primary" type="button">发送</button>
                 <button id="stopBtn" class="warn" type="button" hidden aria-hidden="true" tabindex="-1">停止 Stop</button>
               </div>
               <div id="statusBar" class="status-bar"></div>
